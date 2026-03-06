@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=coral-ollama
-#SBATCH --account=your_project
+#SBATCH --account=gpu-nos-surge
 #SBATCH --partition=u1-h100
 #SBATCH --qos=gpu
 #SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --gres=gpu:h100:1
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/ollama_%j.log
@@ -15,7 +16,7 @@ set -euo pipefail
 
 # --- Paths (edit if your Ollama install differs) ---
 export PATH=$HOME/.local/bin:$PATH
-export LD_LIBRARY_PATH=$HOME/.local/lib/ollama:${LD_LIBRARY_PATH:-}
+export LD_LIBRARY_PATH=/scratch5/purged/$USER/ollama_install/lib/ollama:${LD_LIBRARY_PATH:-}
 export OLLAMA_MODELS=/scratch5/purged/$USER/ollama_models
 
 # --- Server config ---

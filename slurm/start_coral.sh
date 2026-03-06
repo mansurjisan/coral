@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=coral-agent
-#SBATCH --account=your_project
+#SBATCH --account=gpu-nos-surge
 #SBATCH --partition=u1-service
 #SBATCH --qos=batch
 #SBATCH --ntasks=1
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-CORAL_DIR="${CORAL_DIR:-/path/to/coral}"
+CORAL_DIR="${CORAL_DIR:-/scratch5/purged/$USER/CORAL}"
 HOST_FILE=/scratch5/purged/$USER/coral_host.env
 
 # --- Wait for Ollama GPU job to start ---
