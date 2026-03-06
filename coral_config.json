@@ -1,52 +1,52 @@
 {
   "mcpServers": {
     "coops": {
-      "command": "uvx",
-      "args": ["coops-mcp"]
+      "command": "python",
+      "args": ["-m", "coops_mcp"]
     },
     "nhc": {
-      "command": "uvx",
-      "args": ["nhc-mcp"]
+      "command": "python",
+      "args": ["-m", "nhc_mcp"]
     },
     "stofs": {
-      "command": "uvx",
-      "args": ["stofs-mcp"]
+      "command": "python",
+      "args": ["-m", "stofs_mcp"]
     },
     "recon": {
-      "command": "uvx",
-      "args": ["recon-mcp"]
+      "command": "python",
+      "args": ["-m", "recon_mcp"]
     },
     "erddap": {
-      "command": "uvx",
-      "args": ["erddap-mcp"]
+      "command": "python",
+      "args": ["-m", "erddap_mcp"]
     },
     "ofs": {
-      "command": "uvx",
-      "args": ["ofs-mcp"]
+      "command": "python",
+      "args": ["-m", "ofs_mcp"]
     },
     "adcirc": {
-      "command": "uvx",
-      "args": ["adcirc-mcp"]
+      "command": "python",
+      "args": ["-m", "adcirc_mcp"]
     },
     "goes": {
-      "command": "uvx",
-      "args": ["goes-mcp"]
+      "command": "python",
+      "args": ["-m", "goes_mcp"]
     },
     "schism": {
-      "command": "uvx",
-      "args": ["schism-mcp"]
+      "command": "python",
+      "args": ["-m", "schism_mcp"]
     },
     "usgs": {
-      "command": "uvx",
-      "args": ["usgs-mcp"]
+      "command": "python",
+      "args": ["-m", "usgs_mcp"]
     },
     "winds": {
-      "command": "uvx",
-      "args": ["winds-mcp"]
+      "command": "python",
+      "args": ["-m", "winds_mcp"]
     },
     "ww3": {
-      "command": "uvx",
-      "args": ["ww3-mcp"]
+      "command": "python",
+      "args": ["-m", "ww3_mcp"]
     },
     "rag": {
       "command": "python",
