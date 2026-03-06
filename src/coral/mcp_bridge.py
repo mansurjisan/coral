@@ -25,18 +25,16 @@ class MCPBridge:
         self._exit_stacks: list[AsyncExitStack] = []
 
     async def connect_all(self):
-        """Connect to all configured MCP servers and discover tools (in parallel)."""
-        servers = self.config.get("mcpServers", {})
+        """Connect to all configured MCP servers and discover tools.
 
-        async def _safe_connect(name: str, cfg: dict):
+        Connections are sequential because MCP's stdio_client uses anyio
+        cancel scopes that cannot safely cross asyncio.gather task boundaries.
+        """
+        for name, cfg in self.config.get("mcpServers", {}).items():
             try:
                 await self._connect_server(name, cfg)
             except Exception as e:
                 logger.warning("Could not connect to %s: %s", name, e)
-
-        await asyncio.gather(*[
-            _safe_connect(name, cfg) for name, cfg in servers.items()
-        ])
 
     async def _connect_server(self, name: str, cfg: dict):
         """Connect to a single MCP server."""

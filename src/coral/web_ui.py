@@ -40,6 +40,5 @@ def launch(model: str, config: str, port: int):
             "What does the subroutine schism_init do?",
             "Show me my last failed Slurm job and explain the error",
         ],
-        theme="soft",
     )
     demo.launch(server_name="0.0.0.0", server_port=port)
