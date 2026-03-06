@@ -1,0 +1,38 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+%labels
+    Author Mansur Jisan
+    Description CORAL sandbox for safe Python code execution on NOAA HPC
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        libgeos-dev \
+        libproj-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+    pip install --no-cache-dir \
+        xarray \
+        netcdf4 \
+        matplotlib \
+        cartopy \
+        numpy \
+        pandas \
+        scipy \
+        f90nml
+
+%runscript
+    exec python3 "$@"
+
+%help
+    CORAL sandbox container for executing Python analysis scripts.
+
+    Build:
+        apptainer build coral_sandbox.sif containers/coral_sandbox.def
+
+    Run a script:
+        apptainer exec --bind /scratch coral_sandbox.sif python script.py
+
+    Use with CORAL viz server:
+        Set CORAL_SANDBOX_SIF=/path/to/coral_sandbox.sif
+        The viz server will auto-detect and use it for code execution.
