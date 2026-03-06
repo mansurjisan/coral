@@ -24,6 +24,30 @@
       "command": "uvx",
       "args": ["ofs-mcp"]
     },
+    "adcirc": {
+      "command": "uvx",
+      "args": ["adcirc-mcp"]
+    },
+    "goes": {
+      "command": "uvx",
+      "args": ["goes-mcp"]
+    },
+    "schism": {
+      "command": "uvx",
+      "args": ["schism-mcp"]
+    },
+    "usgs": {
+      "command": "uvx",
+      "args": ["usgs-mcp"]
+    },
+    "winds": {
+      "command": "uvx",
+      "args": ["winds-mcp"]
+    },
+    "ww3": {
+      "command": "uvx",
+      "args": ["ww3-mcp"]
+    },
     "rag": {
       "command": "python",
       "args": ["-m", "coral.servers.rag_server"]
