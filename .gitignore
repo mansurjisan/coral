@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# CORAL runtime data
+*.nc
+!tests/fixtures/sample_netcdf.nc
+~/.coral/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log

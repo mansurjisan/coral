@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coral-ocean-ai"
+version = "0.1.0"
+description = "Coastal Ocean Research AI Layer - self-hosted AI agent for NOAA HPC"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "Mansur Jisan", email = "mansur.jisan@gmail.com"}]
+keywords = ["noaa", "ocean", "ai", "mcp", "ollama", "hurricane", "storm-surge", "rag", "hpc"]
+
+dependencies = [
+    # Core agent (Phase 1)
+    "ollama>=0.4",
+    "mcp>=1.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "gradio>=5.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+rag = [
+    "llama-index-core>=0.12",
+    "llama-index-llms-ollama>=0.4",
+    "llama-index-embeddings-ollama>=0.4",
+    "llama-index-vector-stores-lancedb>=0.4",
+    "lancedb>=0.15",
+    "tree-sitter>=0.23",
+    "tree-sitter-languages>=1.10; python_version<'3.13'",
+    "docling>=2.0",
+    "f90nml>=1.4",
+]
+science = [
+    "xarray>=2024.1",
+    "netCDF4>=1.7",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "matplotlib>=3.8",
+    "cartopy>=0.22",
+]
+all = [
+    "coral-ocean-ai[rag,science]",
+    "smolagents>=1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+coral = "coral.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coral"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests that require Ollama and/or MCP servers running",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120

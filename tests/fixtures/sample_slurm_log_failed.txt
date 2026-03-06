@@ -1,0 +1,24 @@
+Loading modules...
+  module load intel/2023.2.0
+  module load impi/2023.2.0
+  module load netcdf/4.9.2
+
+Starting STOFS-2D-Global forecast...
+  Run directory: /scratch/stofs/run/20241010t00z
+  Grid: stofs_2d_glo.gr3
+  Namelist: param.nml
+  Processors: 240
+
+[2024-10-10 00:15:32] Initializing SCHISM...
+[2024-10-10 00:15:33] Reading horizontal grid...
+[2024-10-10 00:15:35] Reading vertical grid...
+[2024-10-10 00:15:36] Setting up barotropic solver...
+[2024-10-10 00:15:40] Time step: dt=120.0s, rnday=5.0
+[2024-10-10 00:15:41] Starting time stepping...
+[2024-10-10 00:15:41] Step     1/3600  t=    120.0s
+[2024-10-10 00:45:22] Step   500/3600  t=  60000.0s
+[2024-10-10 00:45:23] *** FATAL ERROR: Negative water depth at node 1523847
+[2024-10-10 00:45:23] *** CFL violation: max CFL = 12.47 at element 892341
+[2024-10-10 00:45:23] *** MPI_ABORT was invoked on rank 42 in communicator MPI_COMM_WORLD
+slurmstepd: error: *** JOB 12345678 ON node042 CANCELLED AT 2024-10-10T00:45:24 ***
+slurmstepd: error: *** STEP 12345678.0 KILLED BY SIGNAL 9 (Killed) ***

@@ -1,0 +1,48 @@
+{
+  "mcpServers": {
+    "coops": {
+      "command": "uvx",
+      "args": ["coops-mcp"]
+    },
+    "nhc": {
+      "command": "uvx",
+      "args": ["nhc-mcp"]
+    },
+    "stofs": {
+      "command": "uvx",
+      "args": ["stofs-mcp"]
+    },
+    "recon": {
+      "command": "uvx",
+      "args": ["recon-mcp"]
+    },
+    "erddap": {
+      "command": "uvx",
+      "args": ["erddap-mcp"]
+    },
+    "ofs": {
+      "command": "uvx",
+      "args": ["ofs-mcp"]
+    },
+    "rag": {
+      "command": "python",
+      "args": ["-m", "coral.servers.rag_server"]
+    },
+    "netcdf": {
+      "command": "python",
+      "args": ["-m", "coral.servers.netcdf_server"]
+    },
+    "slurm": {
+      "command": "python",
+      "args": ["-m", "coral.servers.slurm_server"]
+    },
+    "ecflow": {
+      "command": "python",
+      "args": ["-m", "coral.servers.ecflow_server"]
+    },
+    "viz": {
+      "command": "python",
+      "args": ["-m", "coral.servers.viz_server"]
+    }
+  }
+}

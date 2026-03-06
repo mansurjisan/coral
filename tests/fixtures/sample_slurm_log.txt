@@ -1,0 +1,28 @@
+Loading modules...
+  module load intel/2023.2.0
+  module load impi/2023.2.0
+  module load netcdf/4.9.2
+
+Starting STOFS-2D-Global forecast...
+  Run directory: /scratch/stofs/run/20241009t00z
+  Grid: stofs_2d_glo.gr3
+  Namelist: param.nml
+  Processors: 240
+
+[2024-10-09 00:15:32] Initializing SCHISM...
+[2024-10-09 00:15:33] Reading horizontal grid...
+[2024-10-09 00:15:35] Reading vertical grid...
+[2024-10-09 00:15:36] Setting up barotropic solver...
+[2024-10-09 00:15:40] Time step: dt=120.0s, rnday=5.0
+[2024-10-09 00:15:41] Starting time stepping...
+[2024-10-09 00:15:41] Step     1/3600  t=    120.0s
+[2024-10-09 00:15:42] Step     2/3600  t=    240.0s
+[2024-10-09 00:15:43] Step     3/3600  t=    360.0s
+[2024-10-09 01:23:15] Step  1800/3600  t= 216000.0s
+[2024-10-09 02:30:44] Step  3599/3600  t= 431880.0s
+[2024-10-09 02:30:45] Step  3600/3600  t= 432000.0s
+
+SCHISM completed successfully.
+  Total wall time: 2:15:13
+  Max memory usage: 48.2 GB
+  Output written to: /scratch/stofs/run/20241009t00z/outputs/

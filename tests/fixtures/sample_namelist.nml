@@ -1,0 +1,14 @@
+&core
+  dt = 120.0
+  rnday = 5.0
+  ihfskip = 36
+  nhot = 1
+  nhot_write = 1
+/
+&opt
+  ipre = 0
+  ibc = 0
+  ibtp = 1
+  ics = 2
+  ntracer_gen = 2
+/
