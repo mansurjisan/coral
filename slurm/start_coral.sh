@@ -42,6 +42,9 @@ for i in $(seq 1 30); do
     sleep 5
 done
 
+# --- Paths for uv/uvx (MCP servers) and Ollama ---
+export PATH=/scratch5/purged/$USER/uv:$HOME/.local/bin:$PATH
+
 # --- Activate environment and start ---
 source "$CORAL_DIR/.venv/bin/activate"
 cd "$CORAL_DIR"
