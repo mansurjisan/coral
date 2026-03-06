@@ -1,7 +1,6 @@
 """Tests for the viz (code execution) MCP server tool functions."""
 
 import os
-import tempfile
 
 from coral.servers.viz_server import execute_python
 

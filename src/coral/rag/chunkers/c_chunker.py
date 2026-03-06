@@ -87,7 +87,7 @@ class CChunker:
                 })
                 overlap = current[-3:]
                 current = overlap
-                current_len = sum(len(l) + 1 for l in current)
+                current_len = sum(len(ln) + 1 for ln in current)
                 start_line = i - len(overlap) + 1
 
         if current:
