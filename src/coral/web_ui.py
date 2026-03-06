@@ -2,32 +2,46 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import gradio as gr
 
 from coral.agent import CoralAgent
 from coral.mcp_bridge import MCPBridge
 
 _agent: CoralAgent | None = None
+_model: str = ""
+_config: str = ""
 
 
-async def _init_agent(model: str, config: str):
+async def _ensure_agent():
+    """Lazily initialize the agent on first request.
+
+    This runs inside Gradio's event loop so MCP sessions stay alive.
+    Using asyncio.run() for init would destroy the event loop and kill
+    all MCP connections before Gradio starts.
+    """
     global _agent
-    bridge = MCPBridge(config)
+    if _agent is not None:
+        return
+
+    print("CORAL — Connecting to MCP servers...")
+    bridge = MCPBridge(_config)
     await bridge.connect_all()
-    _agent = CoralAgent(model=model, mcp_bridge=bridge)
+    print(f"Connected. {len(bridge.tools)} tools available.")
+    _agent = CoralAgent(model=_model, mcp_bridge=bridge)
 
 
 async def _respond(message: str, history: list):
     """Handle a chat message from the Gradio UI."""
+    await _ensure_agent()
     response = await _agent.chat(message)
     return response
 
 
 def launch(model: str, config: str, port: int):
-    """Initialize the agent and launch the Gradio web interface."""
-    asyncio.run(_init_agent(model, config))
+    """Launch the Gradio web interface."""
+    global _model, _config
+    _model = model
+    _config = config
 
     demo = gr.ChatInterface(
         _respond,
