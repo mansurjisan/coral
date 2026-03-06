@@ -1,122 +1,127 @@
 # CORAL — Coastal Ocean Research AI Layer
 
-A self-hosted AI agent for NOAA HPC that gives coastal scientists a ChatGPT-like experience — entirely within NOAA's network.
+**A self-hosted AI agent for NOAA HPC that connects local LLMs to ocean data, scientific documentation, and HPC workflows — entirely within NOAA's network.**
 
-## What it does
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)]()
 
-CORAL combines a local LLM (via Ollama) with live ocean data tools, a RAG knowledge base over scientific code and documentation, and HPC workflow integration:
+## What It Does
 
-- **Live ocean data** — Query real-time water levels, hurricane tracks, storm surge forecasts, recon flights, and satellite data through [ocean-mcp](https://github.com/mansurjisan) servers
-- **RAG over documentation** — Search SCHISM/ADCIRC source code, NOAA tech memos, model configs, and namelists
-- **Local file interaction** — Inspect NetCDF model outputs, parse Slurm logs, monitor ecFlow workflows
+CORAL runs a local LLM ([Ollama](https://ollama.com) + [Qwen3](https://huggingface.co/Qwen)) and connects it to real data and tools through the [Model Context Protocol](https://modelcontextprotocol.io):
+
+- **Live ocean data** — Water levels, hurricane tracks, storm surge forecasts, recon flights, satellite imagery via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp)
+- **RAG over documentation** — Search SCHISM/ADCIRC source code, NOAA tech memos, namelists, ecFlow suites
+- **HPC tools** — Inspect NetCDF outputs, diagnose Slurm failures, monitor ecFlow workflows
 - **Code execution** — Generate and run Python analysis scripts (xarray, matplotlib, cartopy)
-- **CLI + Web UI** — Interactive terminal chat or Gradio web interface
 
-All running on Ollama with open-weight LLMs. No external APIs, no commercial licenses.
+No data leaves NOAA's network. No API keys. No per-token costs.
+
+```text
+You: What is the current water level at The Battery, NYC?
+
+CORAL: [calls coops-mcp → get_water_levels]
+  The current water level at The Battery (station 8518750) is 0.42m
+  above MLLW as of 2025-03-05 14:30 UTC.
+
+You: My last STOFS run on Ursa failed. What happened?
+
+CORAL: [calls slurm-mcp → diagnose_job_failure]
+  Job 4521893 failed with exit code 137 (SIGKILL) after 2h15m.
+  MaxRSS was 180GB against 192GB limit — likely OOM. The log shows
+  "CFL violation at timestep 4521" before termination.
+
+You: What does the SCHISM parameter IHFSKIP control?
+
+CORAL: [calls rag-mcp → search_documentation]
+  From schism_init.F90 (line 342): IHFSKIP controls the output skip
+  count for hotstart files. Setting ihfskip=36 with dt=120s writes
+  a hotstart file every 4320 seconds.
+```
+
+## Data Sources
+
+| Server | Source | Data |
+|--------|--------|------|
+| `coops-mcp` | CO-OPS | Water levels, tide predictions, met data from 200+ stations |
+| `nhc-mcp` | NHC | Active storms, forecast tracks, surge warnings |
+| `stofs-mcp` | STOFS | Storm surge forecasts |
+| `recon-mcp` | Hurricane Hunters | Flight-level recon, vortex messages |
+| `erddap-mcp` | CoastWatch ERDDAP | Satellite SST, ocean color |
+| `ofs-mcp` | OFS | Regional nowcast/forecast guidance |
 
 ## Quick Start
 
 ```bash
-# Install
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+git clone https://github.com/mansurjisan/coral.git
+cd coral
+pip install -e .
 
-# Pull a model
 ollama pull qwen3:8b
 
-# Chat
 coral chat --model qwen3:8b
+```
 
-# Index documentation into RAG
-coral index /path/to/schism/src
+### Other Commands
 
-# Launch web UI
-coral serve --model qwen3:8b --port 7860
-
-# List available tools
-coral tools
+```bash
+coral serve --model qwen3:8b --port 7860   # Web UI
+coral index /path/to/schism/src             # Index docs for RAG
+coral tools                                 # List available tools
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  CORAL                                                  │
-│                                                         │
-│  User ──► CLI / Gradio UI                               │
-│               │                                         │
-│           CoralAgent (agentic loop)                      │
-│               │                                         │
-│           Ollama (qwen3:8b/32b)                         │
-│               │                                         │
-│           MCPBridge ──► MCP Servers                      │
-│               ├── coops-mcp (tides/water levels)        │
-│               ├── nhc-mcp (hurricanes)                  │
-│               ├── stofs-mcp (storm surge)               │
-│               ├── recon-mcp (recon flights)             │
-│               ├── erddap-mcp (satellite data)           │
-│               ├── ofs-mcp (forecast models)             │
-│               ├── coral-rag (documentation search)      │
-│               ├── coral-netcdf (local NetCDF files)     │
-│               ├── coral-slurm (job management)          │
-│               ├── coral-ecflow (workflow status)        │
-│               └── coral-viz (code execution)            │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│            CORAL Agent                   │
+│        (Ollama + MCP bridge)             │
+├──────────┬───────────┬───────────────────┤
+│ Ocean    │ HPC       │ Knowledge Base    │
+│ Data     │ Tools     │ (RAG)             │
+│          │           │                   │
+│ coops    │ netcdf    │ LanceDB           │
+│ nhc      │ slurm     │ nomic-embed-text  │
+│ stofs    │ ecflow    │ Fortran/C/PDF     │
+│ recon    │ viz       │ chunkers          │
+│ erddap   │           │                   │
+│ ofs      │           │                   │
+└──────────┴───────────┴───────────────────┘
 ```
 
-## Example Queries
+## HPC Deployment
 
-```
-What is the current water level at The Battery, NYC?
-Are there any active hurricanes in the Atlantic?
-Inspect the NetCDF file /scratch/stofs/output/stofs_2d.nc
-What does the subroutine schism_init do?
-Show me my last failed Slurm jobs and diagnose what went wrong
-Plot water levels from stofs_2d.nc at lat=40.7, lon=-74.0
-```
+CORAL runs on NOAA HPC with Ollama on GPU nodes and the agent on service nodes. See `slurm/` for job scripts.
 
-## Project Structure
+## Status
 
-```
-coral/
-├── pyproject.toml              # Package config + dependencies
-├── coral_config.json           # MCP server configuration
-├── src/coral/
-│   ├── agent.py                # Agentic loop with tool routing
-│   ├── mcp_bridge.py           # MCP server connection manager
-│   ├── prompts.py              # System prompt
-│   ├── cli.py                  # Typer CLI (chat, serve, index, tools)
-│   ├── web_ui.py               # Gradio interface
-│   ├── rag/
-│   │   ├── indexer.py          # LanceDB + Ollama embeddings
-│   │   ├── retriever.py        # Hybrid vector + BM25 search
-│   │   └── chunkers/           # Fortran, C, namelist, markdown, ecFlow
-│   └── servers/
-│       ├── netcdf_server.py    # Read/query NetCDF files
-│       ├── slurm_server.py     # Slurm job management
-│       ├── ecflow_server.py    # ecFlow suite monitoring
-│       ├── rag_server.py       # RAG search over docs
-│       └── viz_server.py       # Python code execution
-└── tests/                      # 68 tests
+- [x] Phase 1: MCP agent + CLI + Web UI
+- [x] Phase 2: RAG pipeline (Fortran, namelist, PDF, ecFlow chunkers)
+- [x] Phase 3: HPC MCP servers (NetCDF, Slurm, ecFlow, code execution)
+- [ ] Phase 4: Apptainer sandbox for safe code execution
+- [ ] Phase 5: HPC deployment and testing
+
+## Related
+
+- [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) — MCP servers for NOAA ocean data
+- [Ollama](https://ollama.com) — Local LLM inference
+- [Model Context Protocol](https://modelcontextprotocol.io) — Tool integration standard
+
+## Citation
+
+```bibtex
+@software{jisan2025coral,
+  author = {Jisan, Mansur},
+  title = {CORAL: Coastal Ocean Research AI Layer},
+  year = {2025},
+  url = {https://github.com/mansurjisan/coral}
+}
 ```
 
-## Optional Dependencies
+## Author
 
-```bash
-# RAG pipeline (LanceDB, tree-sitter, docling, f90nml)
-pip install -e ".[rag]"
-
-# Scientific tools (xarray, netCDF4, matplotlib, cartopy)
-pip install -e ".[science]"
-
-# Everything
-pip install -e ".[all]"
-```
-
-## HPC Deployment (NOAA Ursa)
-
-See `slurm/` for Slurm job scripts that run Ollama on GPU nodes and CORAL on service nodes.
+**Mansur Jisan** — NOAA National Ocean Service
 
 ## License
 
-Apache-2.0
+Apache 2.0
