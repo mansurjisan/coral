@@ -44,6 +44,9 @@ done
 
 # --- Paths for uv/uvx (MCP servers) and Ollama ---
 export PATH=/scratch5/purged/$USER/uv:$HOME/.local/bin:$PATH
+export UV_CACHE_DIR=/scratch5/purged/$USER/uv_cache
+export UV_PYTHON_INSTALL_DIR=/scratch5/purged/$USER/uv_python
+export XDG_DATA_HOME=/scratch5/purged/$USER/.local/share
 
 # --- Activate environment and start ---
 source "$CORAL_DIR/.venv/bin/activate"

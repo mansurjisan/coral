@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from contextlib import AsyncExitStack
@@ -25,16 +24,13 @@ class MCPBridge:
         self._exit_stacks: list[AsyncExitStack] = []
 
     async def connect_all(self):
-        """Connect to all configured MCP servers and discover tools.
-
-        Connections are sequential because MCP's stdio_client uses anyio
-        cancel scopes that cannot safely cross asyncio.gather task boundaries.
-        """
+        """Connect to all configured MCP servers and discover tools."""
         for name, cfg in self.config.get("mcpServers", {}).items():
             try:
                 await self._connect_server(name, cfg)
             except Exception as e:
                 logger.warning("Could not connect to %s: %s", name, e)
+                print(f"Could not connect to {name}: {e}")
 
     async def _connect_server(self, name: str, cfg: dict):
         """Connect to a single MCP server."""
@@ -46,16 +42,27 @@ class MCPBridge:
         )
 
         stack = AsyncExitStack()
-        self._exit_stacks.append(stack)
 
-        stdio_transport = await stack.enter_async_context(
-            stdio_client(params)
-        )
-        read_stream, write_stream = stdio_transport
-        session = await stack.enter_async_context(
-            ClientSession(read_stream, write_stream)
-        )
-        await session.initialize()
+        try:
+            stdio_transport = await stack.enter_async_context(
+                stdio_client(params)
+            )
+            read_stream, write_stream = stdio_transport
+            session = await stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            )
+            await session.initialize()
+        except Exception:
+            # Clean up the stack immediately on failure to avoid
+            # cancel scope leaks from partially-entered contexts
+            try:
+                await stack.aclose()
+            except Exception:
+                pass
+            raise
+
+        # Only track the stack after successful connection
+        self._exit_stacks.append(stack)
         self.sessions[name] = session
 
         # Discover tools from this server
@@ -94,4 +101,7 @@ class MCPBridge:
     async def close(self):
         """Close all MCP server connections."""
         for stack in self._exit_stacks:
-            await stack.aclose()
+            try:
+                await stack.aclose()
+            except Exception:
+                pass
