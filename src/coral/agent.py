@@ -132,9 +132,21 @@ class CoralAgent:
                 if self.on_tool_call:
                     self.on_tool_call(tool_name, tool_args, result)
 
+                # Truncate very large tool responses to avoid overwhelming small models.
+                # For tabular data, keep header + sampled rows to preserve key info.
+                result_str = str(result)
+                if len(result_str) > 8000:
+                    lines = result_str.split("\n")
+                    # Keep first 40 lines (header + early data) and last 20 lines
+                    if len(lines) > 80:
+                        kept = lines[:40] + ["\n... [truncated middle rows] ...\n"] + lines[-20:]
+                        result_str = "\n".join(kept)
+                    else:
+                        result_str = result_str[:4000] + "\n\n... [truncated] ...\n\n" + result_str[-3000:]
+
                 self.history.append({
                     "role": "tool",
-                    "content": str(result),
+                    "content": result_str,
                 })
 
             # Subsequent rounds use all tools (the model may need to cross-reference)

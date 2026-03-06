@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import AsyncExitStack
-from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -22,15 +22,21 @@ class MCPBridge:
         self.sessions: dict[str, ClientSession] = {}
         self.tools: list[dict] = []  # Ollama-format tool definitions
         self.tool_map: dict[str, tuple[ClientSession, str]] = {}  # tool_name -> (session, server_name)
-        self._exit_stack = AsyncExitStack()
+        self._exit_stacks: list[AsyncExitStack] = []
 
     async def connect_all(self):
-        """Connect to all configured MCP servers and discover tools."""
-        for name, cfg in self.config.get("mcpServers", {}).items():
+        """Connect to all configured MCP servers and discover tools (in parallel)."""
+        servers = self.config.get("mcpServers", {})
+
+        async def _safe_connect(name: str, cfg: dict):
             try:
                 await self._connect_server(name, cfg)
             except Exception as e:
                 logger.warning("Could not connect to %s: %s", name, e)
+
+        await asyncio.gather(*[
+            _safe_connect(name, cfg) for name, cfg in servers.items()
+        ])
 
     async def _connect_server(self, name: str, cfg: dict):
         """Connect to a single MCP server."""
@@ -41,11 +47,14 @@ class MCPBridge:
             env=env,
         )
 
-        stdio_transport = await self._exit_stack.enter_async_context(
+        stack = AsyncExitStack()
+        self._exit_stacks.append(stack)
+
+        stdio_transport = await stack.enter_async_context(
             stdio_client(params)
         )
         read_stream, write_stream = stdio_transport
-        session = await self._exit_stack.enter_async_context(
+        session = await stack.enter_async_context(
             ClientSession(read_stream, write_stream)
         )
         await session.initialize()
@@ -86,4 +95,5 @@ class MCPBridge:
 
     async def close(self):
         """Close all MCP server connections."""
-        await self._exit_stack.aclose()
+        for stack in self._exit_stacks:
+            await stack.aclose()
