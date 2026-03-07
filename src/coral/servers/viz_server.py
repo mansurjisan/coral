@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,20 @@ import pandas as pd
 """
 
 _SCRIPT_TIMEOUT = 120
+
+# Auto-detect Apptainer sandbox image (built from containers/coral_sandbox.def)
+_SANDBOX_SIF = os.environ.get("CORAL_SANDBOX_SIF", "")
+if not _SANDBOX_SIF:
+    # Check common locations
+    for candidate in [
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "containers", "coral_sandbox.sif"),
+        "/scratch5/purged/{}/coral_sandbox.sif".format(os.environ.get("USER", "")),
+    ]:
+        if os.path.isfile(candidate):
+            _SANDBOX_SIF = candidate
+            break
+
+_USE_SANDBOX = bool(_SANDBOX_SIF and shutil.which("apptainer"))
 
 
 @mcp.tool()
@@ -40,8 +55,20 @@ def execute_python(code: str, description: str = "") -> str:
         script_path = f.name
 
     try:
+        if _USE_SANDBOX:
+            cmd = [
+                "apptainer", "exec",
+                "--nv",
+                "--bind", "/tmp:/tmp",
+                "--bind", "/scratch:/scratch",
+                _SANDBOX_SIF,
+                "python3", script_path,
+            ]
+        else:
+            cmd = [sys.executable, script_path]
+
         result = subprocess.run(
-            [sys.executable, script_path],
+            cmd,
             capture_output=True,
             text=True,
             timeout=_SCRIPT_TIMEOUT,
