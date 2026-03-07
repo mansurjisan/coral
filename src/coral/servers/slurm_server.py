@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 import glob
 import re
 import subprocess
@@ -12,6 +13,7 @@ mcp = FastMCP("coral-slurm")
 
 _SACCT_FORMAT = "JobID,JobName%30,State,ExitCode,Elapsed,Start,End,MaxRSS,NodeList"
 _ALLOWED_STATES = {"all", "running", "pending", "failed", "completed"}
+_MAX_TAIL_LINES = 1000
 
 
 def _run(cmd: list[str], timeout: int = 30) -> str:
@@ -27,6 +29,19 @@ def _run(cmd: list[str], timeout: int = 30) -> str:
         return f"Command timed out after {timeout}s."
     except Exception as e:
         return f"Error: {e}"
+
+
+def _normalize_tail_lines(tail_lines: int) -> int | None:
+    """Validate and cap requested tail length."""
+    if not isinstance(tail_lines, int) or tail_lines < 1:
+        return None
+    return min(tail_lines, _MAX_TAIL_LINES)
+
+
+def _read_tail(log_path: str, tail_lines: int) -> str:
+    """Read only the last N lines of a log file without loading the whole file."""
+    with open(log_path, errors="replace") as f:
+        return "".join(deque(f, maxlen=tail_lines))
 
 
 @mcp.tool()
@@ -72,6 +87,9 @@ def read_job_log(job_id: str, tail_lines: int = 100) -> str:
     """
     if not re.match(r"^\d+$", job_id):
         return f"Invalid job ID: {job_id}"
+    normalized_tail_lines = _normalize_tail_lines(tail_lines)
+    if normalized_tail_lines is None:
+        return f"Invalid tail_lines: {tail_lines}. Use a positive integer up to {_MAX_TAIL_LINES}."
 
     patterns = [
         f"slurm-{job_id}.out",
@@ -84,9 +102,7 @@ def read_job_log(job_id: str, tail_lines: int = 100) -> str:
         if matches:
             log_path = matches[0]
             try:
-                with open(log_path) as f:
-                    lines = f.readlines()
-                content = "".join(lines[-tail_lines:])
+                content = _read_tail(log_path, normalized_tail_lines)
                 return f"Log: {log_path}\n{content}"
             except Exception as e:
                 return f"Error reading {log_path}: {e}"

@@ -52,5 +52,12 @@ export XDG_DATA_HOME=/scratch5/purged/$USER/.local/share
 source "$CORAL_DIR/.venv/bin/activate"
 cd "$CORAL_DIR"
 
+# Require sandboxed viz execution on Ursa. If the image is missing, execute_python
+# will refuse to run instead of falling back to host-side Python.
+export CORAL_REQUIRE_SANDBOX=1
+if [ -f "$CORAL_DIR/containers/coral_sandbox.sif" ]; then
+    export CORAL_SANDBOX_SIF="$CORAL_DIR/containers/coral_sandbox.sif"
+fi
+
 echo "Starting CORAL web UI on port 7860 at $(date)"
 coral serve --model qwen3:32b --config coral_config.json --port 7860

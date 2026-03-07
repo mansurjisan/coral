@@ -22,19 +22,71 @@ import pandas as pd
 
 _SCRIPT_TIMEOUT = 120
 
-# Auto-detect Apptainer sandbox image (built from containers/coral_sandbox.def)
-_SANDBOX_SIF = os.environ.get("CORAL_SANDBOX_SIF", "")
-if not _SANDBOX_SIF:
-    # Check common locations
-    for candidate in [
-        os.path.join(os.path.dirname(__file__), "..", "..", "..", "containers", "coral_sandbox.sif"),
-        "/scratch5/purged/{}/coral_sandbox.sif".format(os.environ.get("USER", "")),
-    ]:
-        if os.path.isfile(candidate):
-            _SANDBOX_SIF = candidate
-            break
+def _sandbox_candidates() -> list[str]:
+    """Return candidate sandbox image paths in priority order."""
+    configured = os.environ.get("CORAL_SANDBOX_SIF", "")
+    candidates = []
+    if configured:
+        candidates.append(configured)
 
-_USE_SANDBOX = bool(_SANDBOX_SIF and shutil.which("apptainer"))
+    candidates.extend([
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "containers", "coral_sandbox.sif"),
+        f"/scratch5/purged/{os.environ.get('USER', '')}/coral_sandbox.sif",
+    ])
+    return candidates
+
+
+def _resolve_sandbox_sif() -> str:
+    """Find the first sandbox image that exists on disk."""
+    for candidate in _sandbox_candidates():
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def _sandbox_required() -> bool:
+    """Whether host-side execution is forbidden in this environment."""
+    return os.environ.get("CORAL_REQUIRE_SANDBOX", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _is_sandbox_runtime_failure(stderr: str) -> bool:
+    """Detect environment-level Apptainer failures where host fallback is acceptable."""
+    lowered = stderr.lower()
+    markers = [
+        "could not write info to setgroups",
+        "user namespace",
+        "no event received",
+    ]
+    return any(marker in lowered for marker in markers)
+
+
+def _build_execution_command(script_path: str) -> tuple[list[str] | None, str | None, bool]:
+    """Return the command to execute, enforcement error, and sandbox usage flag."""
+    sandbox_sif = _resolve_sandbox_sif()
+    apptainer = shutil.which("apptainer")
+
+    if sandbox_sif and apptainer:
+        return [
+            apptainer,
+            "exec",
+            "--nv",
+            "--bind",
+            "/tmp:/tmp",
+            "--bind",
+            "/scratch:/scratch",
+            sandbox_sif,
+            "python3",
+            script_path,
+        ], None, True
+
+    if _sandbox_required():
+        return None, (
+            "Sandboxed Python execution is required, but Apptainer or the sandbox image "
+            "is unavailable. Build `containers/coral_sandbox.sif` or set "
+            "`CORAL_SANDBOX_SIF` to a valid image before using execute_python."
+        ), False
+
+    return [sys.executable, script_path], None, False
 
 
 @mcp.tool()
@@ -55,17 +107,9 @@ def execute_python(code: str, description: str = "") -> str:
         script_path = f.name
 
     try:
-        if _USE_SANDBOX:
-            cmd = [
-                "apptainer", "exec",
-                "--nv",
-                "--bind", "/tmp:/tmp",
-                "--bind", "/scratch:/scratch",
-                _SANDBOX_SIF,
-                "python3", script_path,
-            ]
-        else:
-            cmd = [sys.executable, script_path]
+        cmd, error, using_sandbox = _build_execution_command(script_path)
+        if error is not None:
+            return error
 
         result = subprocess.run(
             cmd,
@@ -74,6 +118,19 @@ def execute_python(code: str, description: str = "") -> str:
             timeout=_SCRIPT_TIMEOUT,
             cwd=tempfile.gettempdir(),
         )
+        if (
+            using_sandbox
+            and result.returncode != 0
+            and not _sandbox_required()
+            and _is_sandbox_runtime_failure(result.stderr)
+        ):
+            result = subprocess.run(
+                [sys.executable, script_path],
+                capture_output=True,
+                text=True,
+                timeout=_SCRIPT_TIMEOUT,
+                cwd=tempfile.gettempdir(),
+            )
 
         output = ""
         if result.stdout:

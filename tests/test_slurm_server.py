@@ -74,6 +74,10 @@ class TestReadJobLog:
         result = read_job_log("abc")
         assert "Invalid job ID" in result
 
+    def test_invalid_tail_lines(self):
+        result = read_job_log("12345", tail_lines=0)
+        assert "Invalid tail_lines" in result
+
     def test_finds_log_file(self):
         # Create a temp slurm log file
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -108,6 +112,23 @@ class TestReadJobLog:
                 result = read_job_log("88888", tail_lines=5)
                 assert "log line 199" in result
                 assert "log line 0" not in result
+            finally:
+                os.chdir(old_cwd)
+
+    def test_tail_lines_is_capped(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "slurm-77777.out")
+            with open(log_path, "w") as f:
+                for i in range(1500):
+                    f.write(f"log line {i}\n")
+
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                result = read_job_log("77777", tail_lines=5000)
+                assert "log line 1499" in result
+                assert "log line 500" in result
+                assert "log line 499" not in result
             finally:
                 os.chdir(old_cwd)
 

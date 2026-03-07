@@ -10,13 +10,14 @@ from coral.web_ui import _respond
 class TestRespond:
     @pytest.mark.asyncio
     async def test_creates_agent_on_first_call(self):
-        """First call with None agent should create a new CoralAgent."""
+        """First call with None agent should create a new CoralAgent in single mode."""
         import coral.web_ui as web_ui
 
         mock_bridge = MagicMock()
         mock_bridge.tools = []
         web_ui._bridge = mock_bridge
         web_ui._model = "test-model"
+        web_ui._mode = "single"
 
         with patch("coral.web_ui.CoralAgent") as MockAgent:
             mock_agent = MockAgent.return_value
@@ -36,6 +37,7 @@ class TestRespond:
         mock_bridge = MagicMock()
         mock_bridge.tools = []
         web_ui._bridge = mock_bridge
+        web_ui._mode = "multi"
 
         existing_agent = MagicMock()
         existing_agent.chat = AsyncMock(return_value="World!")
@@ -50,13 +52,14 @@ class TestRespond:
 
     @pytest.mark.asyncio
     async def test_different_sessions_get_different_agents(self):
-        """Two sessions with None agents create separate CoralAgent instances."""
+        """Two sessions with None agents create separate CoralAgent instances in single mode."""
         import coral.web_ui as web_ui
 
         mock_bridge = MagicMock()
         mock_bridge.tools = []
         web_ui._bridge = mock_bridge
         web_ui._model = "test"
+        web_ui._mode = "single"
 
         agents_created = []
 
@@ -74,3 +77,24 @@ class TestRespond:
 
         assert len(agents_created) == 2
         assert agent1 is not agent2
+
+    @pytest.mark.asyncio
+    async def test_multi_mode_creates_orchestrator(self):
+        """Multi mode should create an Orchestrator session agent."""
+        import coral.web_ui as web_ui
+
+        mock_bridge = MagicMock()
+        mock_bridge.tools = []
+        web_ui._bridge = mock_bridge
+        web_ui._model = "test-model"
+        web_ui._mode = "multi"
+
+        with patch("coral.web_ui.Orchestrator") as MockOrchestrator:
+            mock_agent = MockOrchestrator.return_value
+            mock_agent.chat = AsyncMock(return_value="Hello from multi!")
+
+            response, agent = await _respond("hi", [], None)
+
+        assert response == "Hello from multi!"
+        assert agent is mock_agent
+        MockOrchestrator.assert_called_once_with(model="test-model", mcp_bridge=mock_bridge)

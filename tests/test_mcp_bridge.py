@@ -98,6 +98,69 @@ class TestCallTool:
         assert "binary content" in result
 
 
+class TestRegisterTools:
+    def _make_tool(self, name: str, description: str = "", schema: dict | None = None):
+        tool = MagicMock()
+        tool.name = name
+        tool.description = description
+        tool.inputSchema = schema or {"type": "object"}
+        return tool
+
+    def test_register_tools_populates_bridge(self, tmp_path):
+        config = tmp_path / "config.json"
+        config.write_text('{"mcpServers": {}}')
+        bridge = MCPBridge(str(config))
+
+        session = AsyncMock()
+        tool = self._make_tool("test_tool", description="desc")
+
+        bridge._register_tools(session, "server_a", [tool])
+
+        assert bridge.tools == [{
+            "type": "function",
+            "function": {
+                "name": "test_tool",
+                "description": "desc",
+                "parameters": {"type": "object"},
+            },
+        }]
+        assert bridge.tool_map["test_tool"] == (session, "server_a")
+        assert bridge.tool_server_map["test_tool"] == "server_a"
+
+    def test_register_tools_rejects_duplicate_across_servers(self, tmp_path):
+        config = tmp_path / "config.json"
+        config.write_text('{"mcpServers": {}}')
+        bridge = MCPBridge(str(config))
+
+        session_a = AsyncMock()
+        session_b = AsyncMock()
+        tool = self._make_tool("shared_tool")
+
+        bridge._register_tools(session_a, "server_a", [tool])
+
+        with pytest.raises(ValueError, match="Duplicate tool name 'shared_tool'"):
+            bridge._register_tools(session_b, "server_b", [tool])
+
+        assert bridge.tool_map["shared_tool"] == (session_a, "server_a")
+        assert len(bridge.tools) == 1
+
+    def test_register_tools_rejects_duplicate_within_server(self, tmp_path):
+        config = tmp_path / "config.json"
+        config.write_text('{"mcpServers": {}}')
+        bridge = MCPBridge(str(config))
+
+        session = AsyncMock()
+        tool_a = self._make_tool("duplicate_tool")
+        tool_b = self._make_tool("duplicate_tool")
+
+        with pytest.raises(ValueError, match="Duplicate tool name 'duplicate_tool'"):
+            bridge._register_tools(session, "server_a", [tool_a, tool_b])
+
+        assert bridge.tools == []
+        assert bridge.tool_map == {}
+        assert bridge.tool_server_map == {}
+
+
 class TestClose:
     @pytest.mark.asyncio
     async def test_close_cleans_up_stacks(self, tmp_path):

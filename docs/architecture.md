@@ -11,26 +11,32 @@ The service node has internet access for NOAA API calls. Users connect via SSH t
 
 ## Components
 
-### Agent Layer (`src/coral/agent.py`)
+### Orchestrator Layer (`src/coral/agents/orchestrator.py`)
 
-The core chat loop:
-1. User sends a message
-2. `_select_tools()` filters the 80+ available tools to a relevant subset based on keywords
-3. Message + filtered tools are sent to Ollama
-4. If the LLM calls tools, they're executed via MCP and results fed back
-5. Loop continues until the LLM produces a text response (max 10 iterations)
+CORAL V2 uses an orchestrator plus three focused sections:
+1. **Data**: live NOAA data and NetCDF inspection
+2. **Code**: indexed documentation, source code explanation, and plotting
+3. **Workflow**: Slurm and ecFlow diagnosis
+
+The orchestrator classifies the query, routes it to one or more sections, and synthesizes a single response when multiple sections contribute.
+
+### Shared Agent Runtime (`src/coral/agents/base.py`, `src/coral/agent.py`)
+
+- `BaseAgent` provides the shared tool-calling loop for the V2 sections.
+- `agent.py` remains as the fallback single-agent path.
+- The shared runtime handles history, truncation, tool execution, and error handling.
 
 ### MCP Bridge (`src/coral/mcp_bridge.py`)
 
 Manages connections to all MCP servers:
-- Starts all servers in parallel via `asyncio.gather`
 - Each server runs as a subprocess (stdio transport)
 - Discovers tools from each server and builds a unified tool registry
 - Routes tool calls to the correct server session
+- Rejects duplicate tool names so routing stays deterministic
 
 ### MCP Servers
 
-**External (ocean-mcp via uvx):**
+**Data section servers:**
 - `coops-mcp` — CO-OPS tide stations, water levels
 - `nhc-mcp` — NHC hurricane tracks, forecasts
 - `stofs-mcp` — STOFS storm surge forecasts
@@ -43,13 +49,17 @@ Manages connections to all MCP servers:
 - `usgs-mcp` — USGS streamflow and flood data
 - `winds-mcp` — Weather station wind observations
 - `ww3-mcp` — WaveWatch III wave forecasts
-
-**Custom (built-in):**
 - `netcdf_server.py` — Read/query NetCDF files via xarray
+
+**Workflow section servers:**
 - `slurm_server.py` — Parse Slurm jobs and logs
 - `ecflow_server.py` — ecFlow suite status
-- `viz_server.py` — Execute Python scripts for analysis/plots
+
+**Code section servers:**
 - `rag_server.py` — Search indexed documentation
+- `viz_server.py` — Execute Python scripts for analysis/plots
+
+On Ursa, `viz_server.py` is expected to run through Apptainer using `containers/coral_sandbox.sif`. The service-node launch script sets `CORAL_REQUIRE_SANDBOX=1`, so host-side fallback is disabled there.
 
 ### RAG Pipeline (`src/coral/rag/`)
 
@@ -63,16 +73,22 @@ Gradio ChatInterface on port 7860, accessed via SSH tunnel.
 
 ## Data Flow
 
-```
+```text
 User query
-  → _select_tools() filters relevant tools
-  → Ollama generates response (may include tool calls)
+  → Orchestrator classifies intent
+  → One or more section agents run with section-specific tool filters
   → MCP Bridge routes tool calls to correct server
   → Server executes (API call, file read, subprocess, etc.)
-  → Results returned to Ollama for next iteration
+  → Results returned to the section agent for next iteration
+  → Orchestrator synthesizes a final answer if needed
   → Final text response to user
 ```
 
 ## Tool Routing
 
-Small models (8B) can't handle 80+ tool definitions. `_select_tools()` uses keyword matching to narrow tools before sending to the LLM. For example, "water level" queries only see CO-OPS tools; "hurricane" queries only see NHC tools. Unknown queries get all tools.
+Routing is now two-stage:
+
+1. The orchestrator decides which section or sections should handle the query.
+2. Each section only sees the MCP tools assigned to that domain.
+
+This keeps tool choice narrower and reduces confusion on ambiguous model names like `stofs`, `schism`, and `adcirc`.

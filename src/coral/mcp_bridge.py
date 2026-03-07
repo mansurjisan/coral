@@ -21,6 +21,7 @@ class MCPBridge:
         self.sessions: dict[str, ClientSession] = {}
         self.tools: list[dict] = []  # Ollama-format tool definitions
         self.tool_map: dict[str, tuple[ClientSession, str]] = {}  # tool_name -> (session, server_name)
+        self.tool_server_map: dict[str, str] = {}  # tool_name -> server_name (for agent filtering)
         self._exit_stacks: list[AsyncExitStack] = []
 
     async def connect_all(self):
@@ -31,6 +32,39 @@ class MCPBridge:
             except Exception as e:
                 logger.warning("Could not connect to %s: %s", name, e)
                 print(f"Could not connect to {name}: {e}")
+
+    def _register_tools(self, session: ClientSession, server_name: str, tools) -> None:
+        """Validate and register tools discovered from a server."""
+        pending_names: set[str] = set()
+        pending_tools: list[dict] = []
+
+        for tool in tools:
+            if tool.name in self.tool_map:
+                existing_server = self.tool_server_map[tool.name]
+                raise ValueError(
+                    f"Duplicate tool name '{tool.name}' from server '{server_name}' "
+                    f"already provided by server '{existing_server}'"
+                )
+            if tool.name in pending_names:
+                raise ValueError(
+                    f"Duplicate tool name '{tool.name}' discovered multiple times from "
+                    f"server '{server_name}'"
+                )
+
+            pending_names.add(tool.name)
+            pending_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "parameters": tool.inputSchema,
+                },
+            })
+
+        self.tools.extend(pending_tools)
+        for tool in tools:
+            self.tool_map[tool.name] = (session, server_name)
+            self.tool_server_map[tool.name] = server_name
 
     async def _connect_server(self, name: str, cfg: dict):
         """Connect to a single MCP server."""
@@ -61,23 +95,19 @@ class MCPBridge:
                 pass
             raise
 
-        # Only track the stack after successful connection
+        try:
+            result = await session.list_tools()
+            self._register_tools(session, name, result.tools)
+        except Exception:
+            try:
+                await stack.aclose()
+            except Exception:
+                pass
+            raise
+
+        # Only track the stack after successful connection and tool registration
         self._exit_stacks.append(stack)
         self.sessions[name] = session
-
-        # Discover tools from this server
-        result = await session.list_tools()
-        for tool in result.tools:
-            ollama_tool = {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "parameters": tool.inputSchema,
-                },
-            }
-            self.tools.append(ollama_tool)
-            self.tool_map[tool.name] = (session, name)
 
         logger.info("Connected to %s: %d tools", name, len(result.tools))
 

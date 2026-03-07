@@ -5,11 +5,13 @@ from __future__ import annotations
 import gradio as gr
 
 from coral.agent import CoralAgent
+from coral.agents.orchestrator import Orchestrator
 from coral.mcp_bridge import MCPBridge
 
 _bridge: MCPBridge | None = None
 _model: str = ""
 _config: str = ""
+_mode: str = "multi"
 
 
 async def _ensure_bridge():
@@ -29,26 +31,34 @@ async def _ensure_bridge():
     print(f"Connected. {len(_bridge.tools)} tools available.")
 
 
-async def _respond(message: str, history: list, session_agent: CoralAgent | None):
+def _create_session_agent():
+    """Create a new agent for a Gradio session based on the configured mode."""
+    if _mode == "single":
+        return CoralAgent(model=_model, mcp_bridge=_bridge)
+    return Orchestrator(model=_model, mcp_bridge=_bridge)
+
+
+async def _respond(message: str, history: list, session_agent):
     """Handle a chat message from the Gradio UI.
 
-    Each browser session gets its own CoralAgent (own conversation history)
+    Each browser session gets its own agent (own conversation history)
     but they all share the same MCP bridge (expensive to create per user).
     """
     await _ensure_bridge()
 
     if session_agent is None:
-        session_agent = CoralAgent(model=_model, mcp_bridge=_bridge)
+        session_agent = _create_session_agent()
 
     response = await session_agent.chat(message)
     return response, session_agent
 
 
-def launch(model: str, config: str, port: int):
+def launch(model: str, config: str, port: int, mode: str = "multi"):
     """Launch the Gradio web interface."""
-    global _model, _config
+    global _model, _config, _mode
     _model = model
     _config = config
+    _mode = mode
 
     with gr.Blocks(title="CORAL - Coastal Ocean Research AI Layer") as demo:
         gr.Markdown("# CORAL - Coastal Ocean Research AI Layer")

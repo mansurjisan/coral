@@ -19,9 +19,9 @@ console = Console()
 def chat(
     model: str = typer.Option("qwen3:32b", help="Ollama model name"),
     config: str = typer.Option("coral_config.json", help="MCP config path"),
+    mode: str = typer.Option("multi", help="Agent mode: 'multi' (orchestrator) or 'single' (legacy)"),
 ):
     """Interactive chat with CORAL."""
-    from coral.agent import CoralAgent
     from coral.mcp_bridge import MCPBridge
 
     async def run():
@@ -30,19 +30,28 @@ def chat(
         await bridge.connect_all()
         tool_names = [t["function"]["name"] for t in bridge.tools]
         console.print(f"[green]Connected. {len(bridge.tools)} tools available.[/]")
-        console.print(f"[dim]Tools: {', '.join(tool_names[:10])}{'...' if len(tool_names) > 10 else ''}[/]\n")
+        console.print(f"[dim]Tools: {', '.join(tool_names[:10])}{'...' if len(tool_names) > 10 else ''}[/]")
 
-        def on_tool_call(name, args, result):
-            args_short = str(args)
-            if len(args_short) > 80:
-                args_short = args_short[:80] + "..."
-            result_short = str(result)
-            if len(result_short) > 200:
-                result_short = result_short[:200] + "..."
-            console.print(f"  [yellow]Tool:[/] {name}({args_short})")
-            console.print(f"  [dim]{result_short}[/]")
+        if mode == "single":
+            from coral.agent import CoralAgent
 
-        agent = CoralAgent(model=model, mcp_bridge=bridge, on_tool_call=on_tool_call)
+            def on_tool_call(name, args, result):
+                args_short = str(args)
+                if len(args_short) > 80:
+                    args_short = args_short[:80] + "..."
+                result_short = str(result)
+                if len(result_short) > 200:
+                    result_short = result_short[:200] + "..."
+                console.print(f"  [yellow]Tool:[/] {name}({args_short})")
+                console.print(f"  [dim]{result_short}[/]")
+
+            agent = CoralAgent(model=model, mcp_bridge=bridge, on_tool_call=on_tool_call)
+            console.print("[dim]Mode: single agent (legacy)[/]\n")
+        else:
+            from coral.agents.orchestrator import Orchestrator
+
+            agent = Orchestrator(model=model, mcp_bridge=bridge)
+            console.print("[dim]Mode: multi-agent (data + code + workflow)[/]\n")
 
         console.print("[dim]Type 'exit' or 'quit' to leave. Ctrl+C to interrupt.[/]\n")
 
@@ -120,11 +129,12 @@ def serve(
     model: str = typer.Option("qwen3:32b", help="Ollama model name"),
     config: str = typer.Option("coral_config.json", help="MCP config path"),
     port: int = typer.Option(7860, help="Web UI port"),
+    mode: str = typer.Option("multi", help="Agent mode: 'multi' (orchestrator) or 'single' (legacy)"),
 ):
     """Launch CORAL web UI."""
     from coral.web_ui import launch
 
-    launch(model=model, config=config, port=port)
+    launch(model=model, config=config, port=port, mode=mode)
 
 
 if __name__ == "__main__":

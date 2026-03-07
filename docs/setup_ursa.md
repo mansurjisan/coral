@@ -89,7 +89,39 @@ pip install coops-mcp nhc-mcp stofs-mcp recon-mcp erddap-mcp ofs-mcp \
             adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp
 ```
 
-## 5. Launch CORAL (Slurm)
+## 5. Build the Apptainer sandbox for `viz`
+
+CORAL V2 now enforces sandboxed Python execution on Ursa for the `execute_python` tool. The Slurm launch script sets `CORAL_REQUIRE_SANDBOX=1`, so plotting/code-execution requests will refuse to run unless an Apptainer image is available.
+
+Build the sandbox image from the checked-in definition and keep it at `containers/coral_sandbox.sif` inside the repo checkout:
+
+```bash
+cd /scratch5/purged/$USER/CORAL
+
+# Build on a service node with internet access
+apptainer build containers/coral_sandbox.sif containers/coral_sandbox.def
+```
+
+Verify the image before launching CORAL:
+
+```bash
+apptainer exec containers/coral_sandbox.sif \
+  python3 -c "import xarray, cartopy, netCDF4, f90nml; print('ok')"
+```
+
+Expected output:
+
+```text
+ok
+```
+
+If you want to store the image elsewhere, set `CORAL_SANDBOX_SIF` before launch. The default Ursa path used by `slurm/start_coral.sh` is:
+
+```bash
+/scratch5/purged/$USER/CORAL/containers/coral_sandbox.sif
+```
+
+## 6. Launch CORAL (Slurm)
 
 The Slurm scripts in `slurm/` are pre-configured for Ursa. They launch two jobs:
 
@@ -126,7 +158,7 @@ tail -10 logs/ollama_<JOBID>.log
 tail -20 logs/coral_<JOBID>.log
 ```
 
-## 6. Connect via CLI
+## 7. Connect via CLI
 
 From any Ursa front-end node (no SSH tunnel needed):
 
@@ -150,7 +182,7 @@ CORAL: The current water level at The Battery, NYC (Station 8518750) is
 0.37 meters above MLLW as of 2026-03-06 20:12 UTC.
 ```
 
-## 7. Connect via Web UI (SSH tunnel)
+## 8. Connect via Web UI (SSH tunnel)
 
 The web UI runs on the service node. To access it from your laptop, you need an SSH tunnel through the Ursa bastion.
 
@@ -182,7 +214,7 @@ curl -s http://localhost:7860 | head -3
 
 Open **http://localhost:7860** on your laptop.
 
-## 8. Index documentation (optional)
+## 9. Index documentation (optional)
 
 To enable RAG search over your team's source code and documentation:
 
@@ -213,6 +245,24 @@ export XDG_DATA_HOME=/scratch5/purged/$USER/.local/share
 ### `uvx: No such file or directory`
 
 CORAL uses `python -m` (not `uvx`) to run ocean-mcp servers. If you see this error, make sure you ran `git pull` to get the latest `coral_config.json`.
+
+### `Sandboxed Python execution is required`
+
+This means CORAL received a plotting or Python-analysis request, but `execute_python` could not find a usable Apptainer image while `CORAL_REQUIRE_SANDBOX=1` was set by the Ursa launch script.
+
+Check:
+
+```bash
+cd /scratch5/purged/$USER/CORAL
+ls -lh containers/coral_sandbox.sif
+apptainer exec containers/coral_sandbox.sif python3 -c "print('ok')"
+```
+
+If the file is missing, rebuild it:
+
+```bash
+apptainer build containers/coral_sandbox.sif containers/coral_sandbox.def
+```
 
 ### MCP servers fail to connect
 

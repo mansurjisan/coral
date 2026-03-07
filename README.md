@@ -1,10 +1,10 @@
 # 🪸 CORAL — Coastal Ocean Research AI Layer
 
-**A self-hosted AI agent for NOAA HPC that connects local LLMs to ocean data, scientific documentation, and HPC workflows — entirely within NOAA's network.**
+**A self-hosted AI agent for NOAA HPC that connects local LLMs to ocean data, scientific documentation, and HPC workflows entirely within NOAA's network.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-143%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-197%20passing-brightgreen.svg)]()
 
 ## What It Does
 
@@ -13,10 +13,20 @@ CORAL combines a local LLM (via Ollama) with live ocean data tools, a RAG knowle
 - **Live ocean data** — Query real-time water levels, hurricane tracks, storm surge forecasts, recon flights, and satellite data through [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) servers
 - **RAG over documentation** — Search SCHISM/ADCIRC source code, NOAA tech memos, model configs, and namelists
 - **Local file interaction** — Inspect NetCDF model outputs, parse Slurm logs, monitor ecFlow workflows
-- **Code execution** — Generate and run Python analysis scripts (xarray, matplotlib, cartopy)
+- **Code execution** — Generate and run Python analysis scripts (xarray, matplotlib, cartopy) with Apptainer-backed sandboxing on Ursa
 - **CLI + Web UI** — Interactive terminal chat or Gradio web interface
 
 All running on Ollama with open-weight LLMs. No external APIs, no commercial licenses.
+
+## V2 Structure
+
+CORAL V2 separates the assistant into three focused sections coordinated by an orchestrator:
+
+- **Data** — live NOAA data, NetCDF inspection, and observation/forecast comparisons
+- **Code** — indexed documentation, source code explanation, namelists, and plotting
+- **Workflow** — Slurm and ecFlow diagnosis for NOAA HPC workflows
+
+The shared runtime still owns MCP connectivity, session state, response synthesis, and the legacy single-agent fallback mode.
 
 ```text
 You: What is the current water level at The Battery, NYC?
@@ -86,20 +96,20 @@ coral serve --model qwen3:8b --port 7860
 
 ## Architecture
 
+```text
+┌──────────────────────────────────────────┐
+│           CORAL Orchestrator             │
+│        (Ollama + MCP bridge)             │
+├──────────────┬──────────────┬────────────┤
+│ Data Section │ Code Section │ Workflow   │
+│              │              │ Section    │
+│ ocean-mcp    │ rag-mcp      │ slurm-mcp  │
+│ netcdf-mcp   │ viz-mcp      │ ecflow-mcp │
+└──────┬───────┴──────┬───────┴─────┬──────┘
+   NOAA APIs      Indexed docs     HPC state
 ```
-┌──────────────────────────────────┐
-│         CORAL Agent              │
-│     (Ollama + MCP bridge)        │
-├──────────────┬───────────────────┤
-│  Ocean Data  │  HPC Tools        │
-│  ocean-mcp   │  netcdf-mcp       │
-│ (12 servers) │  slurm-mcp        │
-│  108 tools   │  ecflow-mcp       │
-│              │  viz-mcp          │
-│              │  rag-mcp          │
-└──────┬───────┴────────┬──────────┘
-   NOAA APIs       Local files
-```
+
+On Ursa, `viz-mcp` is expected to run through `containers/coral_sandbox.sif` via Apptainer. See [setup_ursa.md](/mnt/d/coral/docs/setup_ursa.md).
 
 ## Related
 
