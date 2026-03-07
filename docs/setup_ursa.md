@@ -1,71 +1,104 @@
-# Setting Up CORAL on NOAA Ursa HPC
+# Deploying CORAL on NOAA Ursa HPC
+
+Step-by-step guide based on actual deployment on March 6, 2026.
 
 ## Prerequisites
 
-- Active account on Ursa with a compute allocation
+- Active Ursa account with GPU allocation (e.g., `gpu-nos-surge`)
 - Access to `u1-h100` (GPU) and `u1-service` (internet) partitions
-- Python 3.10+ available via module or conda
+- Python 3.10+ available on front-end nodes
 
 ## 1. Install Ollama (no root required)
 
-```bash
-curl -L https://ollama.com/download/ollama-linux-amd64.tgz | tar -C ~/.local -xzf -
+Ursa home directories have a small quota (~5 GB). Install everything to scratch.
 
-# Add to ~/.bashrc
-echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH=$HOME/.local/lib/ollama:${LD_LIBRARY_PATH:-}' >> ~/.bashrc
-source ~/.bashrc
+```bash
+# Download and extract Ollama to scratch
+mkdir -p /scratch5/purged/$USER/ollama_install
+curl -fsSL -o /tmp/ollama.tar.zst \
+  https://github.com/ollama/ollama/releases/download/v0.17.7/ollama-linux-amd64.tar.zst
+tar --zstd -xf /tmp/ollama.tar.zst -C /scratch5/purged/$USER/ollama_install
+rm /tmp/ollama.tar.zst
+
+# Symlink the binary to ~/.local/bin (tiny, fits in home quota)
+mkdir -p ~/.local/bin
+ln -sf /scratch5/purged/$USER/ollama_install/bin/ollama ~/.local/bin/ollama
+
+# Add to PATH (may fail to write .bashrc if home quota is full — that's ok)
+export PATH=$HOME/.local/bin:$PATH
+export LD_LIBRARY_PATH=/scratch5/purged/$USER/ollama_install/lib/ollama:${LD_LIBRARY_PATH:-}
+
+# Verify
+ollama --version
+# Expected: "Warning: could not connect to a running Ollama instance"
+# followed by version number — this is normal, server isn't running yet.
 ```
 
-## 2. Download models (from service node)
-
-Service nodes have internet access. Request an interactive session:
+## 2. Pull models (requires internet — use service node)
 
 ```bash
-salloc -A your_project -p u1-service -q batch -t 2:00:00
+# Get an interactive session on a service node
+salloc -A gpu-nos-surge -p u1-service -q batch -n 1 -t 2:00:00
 
+# Set model storage to scratch (models are large)
 export OLLAMA_MODELS=/scratch5/purged/$USER/ollama_models
 mkdir -p $OLLAMA_MODELS
+export LD_LIBRARY_PATH=/scratch5/purged/$USER/ollama_install/lib/ollama:${LD_LIBRARY_PATH:-}
 
-ollama pull qwen3:32b           # Main agent model (~22GB)
-ollama pull nomic-embed-text    # Embedding model for RAG (~275MB)
-ollama pull qwen3:8b            # Lightweight fallback
+# Start Ollama server temporarily
+ollama serve &
+sleep 5
+
+# Pull models
+ollama pull qwen3:32b           # Main agent model (~22 GB)
+ollama pull nomic-embed-text    # Embedding model for RAG (~275 MB)
+
+# Optional: faster MoE variant
+# ollama pull qwen3:30b-a3b
+
+# Stop Ollama and exit the session
+kill %1
+exit
 ```
 
 ## 3. Clone and install CORAL
 
 ```bash
-git clone https://github.com/mansurjisan/coral.git
-cd coral
+cd /scratch5/purged/$USER
+
+git clone https://github.com/mansurjisan/coral.git CORAL
+cd CORAL
+
 python -m venv .venv
 source .venv/bin/activate
+
+# Redirect pip cache to scratch (home quota too small for build artifacts)
+export PIP_CACHE_DIR=/scratch5/purged/$USER/pip_cache
+export TMPDIR=/scratch5/purged/$USER/tmp
+mkdir -p $PIP_CACHE_DIR $TMPDIR
+
 pip install -e ".[all,dev]"
 ```
 
-## 4. Configure
+## 4. Install ocean-mcp servers
 
-Edit the Slurm scripts to match your allocation:
+The ocean-mcp packages are pip-installed into the venv (not run via `uvx`, which has home quota issues on Ursa).
 
 ```bash
-# In slurm/start_ollama.sh and slurm/start_coral.sh:
-#SBATCH --account=your_project   # ← your allocation
-
-# In slurm/start_coral.sh:
-CORAL_DIR="/path/to/coral"       # ← your coral clone path
+pip install coops-mcp nhc-mcp stofs-mcp recon-mcp erddap-mcp ofs-mcp \
+            adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp
 ```
 
-## 5. Build the sandbox container (optional)
+## 5. Launch CORAL (Slurm)
 
-For safe Python code execution:
+The Slurm scripts in `slurm/` are pre-configured for Ursa. They launch two jobs:
 
-```bash
-apptainer build coral_sandbox.sif containers/coral_sandbox.def
-export CORAL_SANDBOX_SIF=$(pwd)/coral_sandbox.sif
-```
-
-## 6. Launch
+1. **coral-ollama** — Ollama LLM server on a GPU node (H100)
+2. **coral-agent** — CORAL agent + web UI on a service node (has internet for NOAA APIs)
 
 ```bash
+cd /scratch5/purged/$USER/CORAL
+mkdir -p logs
 bash slurm/start_all.sh
 ```
 
@@ -75,18 +108,88 @@ Monitor:
 squeue -u $USER
 ```
 
-Once both jobs are RUNNING, connect from your laptop:
+Expected output:
 
-```bash
-ssh -L 7860:<SERVICE_NODE>:7860 $USER@ursa-bastion
-# Open http://localhost:7860
+```
+JOBID  PARTITION   NAME          STATE    TIME  NODES  NODELIST
+123456 u1-h100     coral-ollama  RUNNING  0:20  1      u23g03
+123457 u1-service  coral-agent   RUNNING  0:17  1      ufe08
 ```
 
-## 7. Index documentation (optional)
+Check logs:
 
 ```bash
-# From a service node session
+# Ollama — should show "inference compute" with H100 and ~93 GB VRAM
+tail -10 logs/ollama_<JOBID>.log
+
+# CORAL — should show "Connected. 108 tools available."
+tail -20 logs/coral_<JOBID>.log
+```
+
+## 6. Connect via CLI
+
+From any Ursa front-end node (no SSH tunnel needed):
+
+```bash
+cd /scratch5/purged/$USER/CORAL
 source .venv/bin/activate
+
+# Set OLLAMA_HOST to the GPU node (check logs/ollama_*.log or coral_host.env)
+source /scratch5/purged/$USER/coral_host.env
+export OLLAMA_HOST=http://${OLLAMA_NODE}:11434
+
+coral chat --model qwen3:32b
+```
+
+Example session:
+
+```
+You: What is the current water level at The Battery, NYC?
+
+CORAL: The current water level at The Battery, NYC (Station 8518750) is
+0.37 meters above MLLW as of 2026-03-06 20:12 UTC.
+```
+
+## 7. Connect via Web UI (SSH tunnel)
+
+The web UI runs on the service node. To access it from your laptop, you need an SSH tunnel through the Ursa bastion.
+
+### Step 1: SSH to Ursa with port forwarding
+
+```bash
+ssh -L 7860:localhost:7860 Mansur.Jisan@ursa-rsa.boulder.rdhpcs.noaa.gov
+```
+
+When the bastion says "hit ^C within 5 seconds", press **Ctrl+C** and type the front-end node name (e.g., `ufe04`).
+
+### Step 2: Tunnel from the front-end to the service node
+
+Once on the front-end node, set up a hop to the service node where CORAL is running:
+
+```bash
+# Replace ufe08 with the actual node from squeue output
+ssh -L 7860:localhost:7860 -N ufe08 &
+```
+
+Verify:
+
+```bash
+curl -s http://localhost:7860 | head -3
+# Should return: <!doctype html>
+```
+
+### Step 3: Open in browser
+
+Open **http://localhost:7860** on your laptop.
+
+## 8. Index documentation (optional)
+
+To enable RAG search over your team's source code and documentation:
+
+```bash
+source .venv/bin/activate
+source /scratch5/purged/$USER/coral_host.env
+export OLLAMA_HOST=http://${OLLAMA_NODE}:11434
 
 coral index /path/to/schism/src
 coral index /path/to/adcirc/src
@@ -96,10 +199,73 @@ coral index /path/to/model_configs/
 
 ## Troubleshooting
 
-**Ollama not found**: Ensure `~/.local/bin` is in PATH.
+### `Disk quota exceeded` errors
 
-**Model download fails**: You must be on a service node (has internet). GPU nodes don't have internet.
+Almost everything should go on scratch. Common fixes:
 
-**CORAL can't reach Ollama**: Check that `coral_host.env` was written by the Ollama job. Verify with `cat /scratch5/purged/$USER/coral_host.env`.
+```bash
+export PIP_CACHE_DIR=/scratch5/purged/$USER/pip_cache
+export TMPDIR=/scratch5/purged/$USER/tmp
+export UV_CACHE_DIR=/scratch5/purged/$USER/uv_cache
+export XDG_DATA_HOME=/scratch5/purged/$USER/.local/share
+```
 
-**Port 7860 not reachable**: Make sure the SSH tunnel targets the correct service node hostname.
+### `uvx: No such file or directory`
+
+CORAL uses `python -m` (not `uvx`) to run ocean-mcp servers. If you see this error, make sure you ran `git pull` to get the latest `coral_config.json`.
+
+### MCP servers fail to connect
+
+Check that the ocean-mcp packages are installed in the venv:
+
+```bash
+source .venv/bin/activate
+python -m coops_mcp --help
+```
+
+If not found, reinstall:
+
+```bash
+pip install coops-mcp nhc-mcp stofs-mcp recon-mcp erddap-mcp ofs-mcp \
+            adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp
+```
+
+### Ollama not found / can't connect
+
+```bash
+# Check if Ollama job is running
+squeue -u $USER | grep coral-ollama
+
+# Check the host file
+cat /scratch5/purged/$USER/coral_host.env
+
+# Test connectivity from front-end
+curl http://<OLLAMA_NODE>:11434/api/version
+```
+
+### Cancel and restart
+
+```bash
+scancel <OLLAMA_JOBID> <CORAL_JOBID>
+bash slurm/start_all.sh
+```
+
+## Architecture on Ursa
+
+```
+┌─────────────────┐     ┌──────────────────────────────────┐
+│  u1-h100 (GPU)  │     │  u1-service (internet)           │
+│                 │     │                                  │
+│  Ollama         │◄───►│  CORAL Agent                     │
+│  qwen3:32b      │     │  17 MCP servers (108 tools)      │
+│  nomic-embed    │     │  Gradio web UI (:7860)           │
+│  93 GB VRAM     │     │                                  │
+└─────────────────┘     └──────────────────────────────────┘
+                              ▲
+                              │ SSH tunnel
+                              │
+                        ┌─────┴─────┐
+                        │  Laptop   │
+                        │  :7860    │
+                        └───────────┘
+```
