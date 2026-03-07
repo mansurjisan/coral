@@ -7,6 +7,7 @@ from typing import Callable
 
 import ollama
 
+from coral.audit import record_audit_event, request_context, section_context
 from coral.mcp_bridge import MCPBridge
 from coral.prompts import CORAL_SYSTEM_PROMPT
 
@@ -96,83 +97,90 @@ class CoralAgent:
         Implements an agentic loop: the LLM can make multiple tool calls
         before producing a final text response.
         """
-        self.history.append({"role": "user", "content": user_message})
+        with request_context(mode="single", route=["SINGLE"]), section_context("single"):
+            record_audit_event("query_start", message_chars=len(user_message))
+            try:
+                self.history.append({"role": "user", "content": user_message})
 
-        # Filter tools to relevant subset for this query
-        tools = _select_tools(user_message, self.mcp.tools)
-        logger.info("Selected %d/%d tools for query", len(tools), len(self.mcp.tools))
+                # Filter tools to relevant subset for this query
+                tools = _select_tools(user_message, self.mcp.tools)
+                logger.info("Selected %d/%d tools for query", len(tools), len(self.mcp.tools))
 
-        messages = [{"role": "system", "content": CORAL_SYSTEM_PROMPT}] + self.history
+                messages = [{"role": "system", "content": CORAL_SYSTEM_PROMPT}] + self.history
 
-        response = ollama.chat(
-            model=self.model,
-            messages=messages,
-            tools=tools if tools else None,
-        )
+                response = ollama.chat(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools if tools else None,
+                )
 
-        iteration = 0
-        while response.message.tool_calls and iteration < MAX_TOOL_ITERATIONS:
-            # Append the assistant message with tool calls
-            self.history.append({
-                "role": "assistant",
-                "content": response.message.content or "",
-                "tool_calls": [
-                    {
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        }
-                    }
-                    for tc in response.message.tool_calls
-                ],
-            })
+                iteration = 0
+                while response.message.tool_calls and iteration < MAX_TOOL_ITERATIONS:
+                    # Append the assistant message with tool calls
+                    self.history.append({
+                        "role": "assistant",
+                        "content": response.message.content or "",
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
+                            }
+                            for tc in response.message.tool_calls
+                        ],
+                    })
 
-            # Execute each tool call
-            for tool_call in response.message.tool_calls:
-                tool_name = tool_call.function.name
-                tool_args = tool_call.function.arguments
+                    # Execute each tool call
+                    for tool_call in response.message.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args = tool_call.function.arguments
 
-                logger.info("Calling tool: %s(%s)", tool_name, tool_args)
+                        logger.info("Calling tool: %s(%s)", tool_name, tool_args)
 
-                try:
-                    result = await self.mcp.call_tool(tool_name, tool_args)
-                except Exception as e:
-                    result = f"Error calling {tool_name}: {e}"
-                    logger.error(result)
+                        try:
+                            result = await self.mcp.call_tool(tool_name, tool_args)
+                        except Exception as e:
+                            result = f"Error calling {tool_name}: {e}"
+                            logger.error(result)
 
-                if self.on_tool_call:
-                    self.on_tool_call(tool_name, tool_args, result)
+                        if self.on_tool_call:
+                            self.on_tool_call(tool_name, tool_args, result)
 
-                # Truncate very large tool responses to avoid overwhelming small models.
-                # For tabular data, keep header + sampled rows to preserve key info.
-                result_str = str(result)
-                if len(result_str) > 8000:
-                    lines = result_str.split("\n")
-                    # Keep first 40 lines (header + early data) and last 20 lines
-                    if len(lines) > 80:
-                        kept = lines[:40] + ["\n... [truncated middle rows] ...\n"] + lines[-20:]
-                        result_str = "\n".join(kept)
-                    else:
-                        result_str = result_str[:4000] + "\n\n... [truncated] ...\n\n" + result_str[-3000:]
+                        # Truncate very large tool responses to avoid overwhelming small models.
+                        # For tabular data, keep header + sampled rows to preserve key info.
+                        result_str = str(result)
+                        if len(result_str) > 8000:
+                            lines = result_str.split("\n")
+                            # Keep first 40 lines (header + early data) and last 20 lines
+                            if len(lines) > 80:
+                                kept = lines[:40] + ["\n... [truncated middle rows] ...\n"] + lines[-20:]
+                                result_str = "\n".join(kept)
+                            else:
+                                result_str = result_str[:4000] + "\n\n... [truncated] ...\n\n" + result_str[-3000:]
 
-                self.history.append({
-                    "role": "tool",
-                    "content": result_str,
-                })
+                        self.history.append({
+                            "role": "tool",
+                            "content": result_str,
+                        })
 
-            # Subsequent rounds use all tools (the model may need to cross-reference)
-            messages = [{"role": "system", "content": CORAL_SYSTEM_PROMPT}] + self.history
-            response = ollama.chat(
-                model=self.model,
-                messages=messages,
-                tools=tools if tools else None,
-            )
-            iteration += 1
+                    # Subsequent rounds use all tools (the model may need to cross-reference)
+                    messages = [{"role": "system", "content": CORAL_SYSTEM_PROMPT}] + self.history
+                    response = ollama.chat(
+                        model=self.model,
+                        messages=messages,
+                        tools=tools if tools else None,
+                    )
+                    iteration += 1
 
-        # Final text response
-        assistant_content = response.message.content or ""
-        self.history.append({"role": "assistant", "content": assistant_content})
-        return assistant_content
+                # Final text response
+                assistant_content = response.message.content or ""
+                self.history.append({"role": "assistant", "content": assistant_content})
+                record_audit_event("query_end", success=True)
+                return assistant_content
+            except Exception as exc:
+                record_audit_event("query_end", success=False, error=str(exc))
+                raise
 
     def reset(self):
         """Clear conversation history."""

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from coral.agents.base import BaseAgent
 from coral.mcp_bridge import MCPBridge
-
-DATA_SERVERS = ["coops", "nhc", "stofs", "recon", "erddap", "ofs",
-                "adcirc", "goes", "schism", "usgs", "winds", "ww3", "netcdf"]
+from coral.policy import get_section_servers
 
 DATA_SYSTEM_PROMPT = """\
 You are CORAL's Data Agent, specialized in querying NOAA ocean data.
@@ -51,5 +49,5 @@ def create_data_agent(model: str, mcp_bridge: MCPBridge) -> BaseAgent:
         model=model,
         system_prompt=DATA_SYSTEM_PROMPT,
         mcp_bridge=mcp_bridge,
-        tool_filter=DATA_SERVERS,
+        tool_filter=get_section_servers("data"),
     )

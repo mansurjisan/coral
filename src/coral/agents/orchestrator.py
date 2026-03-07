@@ -6,6 +6,7 @@ import logging
 
 import ollama
 
+from coral.audit import record_audit_event, request_context, set_request_route
 from coral.agents.code_agent import create_code_agent
 from coral.agents.data_agent import create_data_agent
 from coral.agents.workflow_agent import create_workflow_agent
@@ -166,34 +167,43 @@ class Orchestrator:
 
     async def chat(self, user_message: str) -> str:
         """Route query to appropriate agent(s) and combine responses."""
-        self.history.append({"role": "user", "content": user_message})
+        with request_context(mode="multi"):
+            record_audit_event("query_start", message_chars=len(user_message))
+            try:
+                self.history.append({"role": "user", "content": user_message})
 
-        categories = await self.classify(user_message)
+                categories = await self.classify(user_message)
+                set_request_route(categories)
+                record_audit_event("route_decision", routed_sections=categories)
 
-        if len(categories) == 1:
-            agent = self.agents[categories[0]]
-            response = await agent.chat(user_message)
-        else:
-            # Multi-agent: sequential execution, pass context forward
-            responses = []
-            accumulated_context = user_message
+                if len(categories) == 1:
+                    agent = self.agents[categories[0]]
+                    response = await agent.chat(user_message)
+                else:
+                    # Multi-agent: sequential execution, pass context forward
+                    responses = []
+                    accumulated_context = user_message
 
-            for cat in categories:
-                agent = self.agents[cat]
-                result = await agent.chat(accumulated_context)
-                responses.append(f"[{agent.name.upper()} AGENT]\n{result}")
+                    for cat in categories:
+                        agent = self.agents[cat]
+                        result = await agent.chat(accumulated_context)
+                        responses.append(f"[{agent.name.upper()} AGENT]\n{result}")
 
-                accumulated_context = (
-                    f"Original question: {user_message}\n\n"
-                    f"Previous findings:\n{result}\n\n"
-                    f"Based on the above, continue addressing the original question."
-                )
-                agent.clear_history()
+                        accumulated_context = (
+                            f"Original question: {user_message}\n\n"
+                            f"Previous findings:\n{result}\n\n"
+                            f"Based on the above, continue addressing the original question."
+                        )
+                        agent.clear_history()
 
-            response = await self._synthesize(user_message, responses)
+                    response = await self._synthesize(user_message, responses)
 
-        self.history.append({"role": "assistant", "content": response})
-        return response
+                self.history.append({"role": "assistant", "content": response})
+                record_audit_event("query_end", success=True)
+                return response
+            except Exception as exc:
+                record_audit_event("query_end", success=False, error=str(exc))
+                raise
 
     async def _synthesize(self, original_query: str, agent_responses: list[str]) -> str:
         """Combine multiple agent responses into a coherent answer."""

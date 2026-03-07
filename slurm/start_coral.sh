@@ -54,6 +54,7 @@ cd "$CORAL_DIR"
 
 # Require sandboxed viz execution on Ursa. If the image is missing, execute_python
 # will refuse to run instead of falling back to host-side Python.
+export CORAL_ENV=ursa
 export CORAL_REQUIRE_SANDBOX=1
 if [ -f "$CORAL_DIR/containers/coral_sandbox.sif" ]; then
     export CORAL_SANDBOX_SIF="$CORAL_DIR/containers/coral_sandbox.sif"

@@ -1,0 +1,312 @@
+{
+  "version": 1,
+  "default_environment": "local",
+  "environments": [
+    "local",
+    "ursa"
+  ],
+  "sections": {
+    "data": {
+      "description": "Approved NOAA data access and local NetCDF inspection.",
+      "servers": [
+        "coops",
+        "nhc",
+        "stofs",
+        "recon",
+        "erddap",
+        "ofs",
+        "adcirc",
+        "goes",
+        "schism",
+        "usgs",
+        "winds",
+        "ww3",
+        "netcdf"
+      ]
+    },
+    "code": {
+      "description": "Approved documentation retrieval and code execution tools.",
+      "servers": [
+        "rag",
+        "viz"
+      ]
+    },
+    "workflow": {
+      "description": "Approved HPC workflow and job diagnostics tools.",
+      "servers": [
+        "slurm",
+        "ecflow"
+      ]
+    }
+  },
+  "servers": {
+    "coops": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "observe",
+        "forecast",
+        "diagnose_conditions"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "nhc": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "storm_status",
+        "forecast",
+        "warnings"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "stofs": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "forecast",
+        "water_levels"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "recon": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "recon_observations"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "erddap": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "dataset_query"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "ofs": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "forecast",
+        "nowcast"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "adcirc": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "config_parse"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "goes": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "imagery_query"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "schism": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "config_parse"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "usgs": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "streamflow",
+        "flood_status"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "winds": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "wind_observations"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "ww3": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "wave_forecast"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "netcdf": {
+      "trust_class": "data-local",
+      "risk": "read-only",
+      "allowed_operations": [
+        "file_inspect",
+        "dataset_query"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "rag": {
+      "trust_class": "code-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "search_documentation"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "viz": {
+      "trust_class": "code-exec",
+      "risk": "code-exec",
+      "allowed_operations": [
+        "python_execute",
+        "plot_generate"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": true
+      }
+    },
+    "slurm": {
+      "trust_class": "workflow-diagnostic",
+      "risk": "diagnostic",
+      "allowed_operations": [
+        "job_status",
+        "log_read",
+        "failure_diagnosis"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "ecflow": {
+      "trust_class": "workflow-diagnostic",
+      "risk": "diagnostic",
+      "allowed_operations": [
+        "suite_status",
+        "task_read",
+        "failure_diagnosis"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    }
+  }
+}

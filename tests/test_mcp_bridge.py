@@ -10,9 +10,9 @@ from coral.mcp_bridge import MCPBridge
 class TestMCPBridgeInit:
     def test_loads_config(self, tmp_path):
         config = tmp_path / "config.json"
-        config.write_text('{"mcpServers": {"test": {"command": "echo", "args": ["hi"]}}}')
+        config.write_text('{"mcpServers": {"coops": {"command": "echo", "args": ["hi"]}}}')
         bridge = MCPBridge(str(config))
-        assert "test" in bridge.config["mcpServers"]
+        assert "coops" in bridge.config["mcpServers"]
 
     def test_empty_state_on_init(self, tmp_path):
         config = tmp_path / "config.json"
@@ -25,6 +25,13 @@ class TestMCPBridgeInit:
     def test_missing_config_raises(self):
         with pytest.raises(FileNotFoundError):
             MCPBridge("/nonexistent/config.json")
+
+    def test_unknown_server_in_config_raises(self, tmp_path):
+        config = tmp_path / "config.json"
+        config.write_text('{"mcpServers": {"filesystem": {"command": "echo", "args": ["hi"]}}}')
+
+        with pytest.raises(ValueError, match="Unapproved MCP servers"):
+            MCPBridge(str(config))
 
 
 class TestCallTool:

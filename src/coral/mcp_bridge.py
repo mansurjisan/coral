@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+from coral.audit import record_audit_event, split_tool_audit_payload, summarize_arguments
+from coral.policy import validate_configured_servers
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +22,7 @@ class MCPBridge:
     def __init__(self, config_path: str):
         with open(config_path) as f:
             self.config = json.load(f)
+        validate_configured_servers(self.config.get("mcpServers", {}).keys())
         self.sessions: dict[str, ClientSession] = {}
         self.tools: list[dict] = []  # Ollama-format tool definitions
         self.tool_map: dict[str, tuple[ClientSession, str]] = {}  # tool_name -> (session, server_name)
@@ -117,16 +122,43 @@ class MCPBridge:
             raise ValueError(f"Unknown tool: {tool_name}")
 
         session, server_name = self.tool_map[tool_name]
-        result = await session.call_tool(tool_name, arguments)
+        started = time.perf_counter()
+        args_summary = summarize_arguments(arguments)
+        success = False
+        sandbox_used = None
+        error = None
 
-        # Extract text content from result
-        parts = []
-        for content in result.content:
-            if hasattr(content, "text"):
-                parts.append(content.text)
-            else:
-                parts.append(str(content))
-        return "\n".join(parts)
+        try:
+            result = await session.call_tool(tool_name, arguments)
+
+            # Extract text content from result
+            parts = []
+            for content in result.content:
+                if hasattr(content, "text"):
+                    parts.append(content.text)
+                else:
+                    parts.append(str(content))
+
+            text = "\n".join(parts)
+            payload, cleaned = split_tool_audit_payload(text)
+            sandbox_used = payload.get("sandbox_used")
+            success = True
+            return cleaned
+        except Exception as exc:
+            error = str(exc)
+            raise
+        finally:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            record_audit_event(
+                "tool_call",
+                server=server_name,
+                tool=tool_name,
+                args_summary=args_summary,
+                duration_ms=duration_ms,
+                success=success,
+                error=error,
+                sandbox_used=sandbox_used,
+            )
 
     async def close(self):
         """Close all MCP server connections."""

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from coral.agents.base import BaseAgent
 from coral.mcp_bridge import MCPBridge
-
-CODE_SERVERS = ["rag", "viz"]
+from coral.policy import get_section_servers
 
 CODE_SYSTEM_PROMPT = """\
 You are CORAL's Code Agent, specialized in NOAA ocean model source code \
@@ -39,5 +38,5 @@ def create_code_agent(model: str, mcp_bridge: MCPBridge) -> BaseAgent:
         model=model,
         system_prompt=CODE_SYSTEM_PROMPT,
         mcp_bridge=mcp_bridge,
-        tool_filter=CODE_SERVERS,
+        tool_filter=get_section_servers("code"),
     )

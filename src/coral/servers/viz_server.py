@@ -10,6 +10,8 @@ import tempfile
 
 from mcp.server.fastmcp import FastMCP
 
+from coral.audit import with_tool_audit_payload
+
 mcp = FastMCP("coral-viz")
 
 _SCRIPT_HEADER = """\
@@ -56,6 +58,8 @@ def _is_sandbox_runtime_failure(stderr: str) -> bool:
         "could not write info to setgroups",
         "user namespace",
         "no event received",
+        "mount source",
+        "hook function failure",
     ]
     return any(marker in lowered for marker in markers)
 
@@ -109,7 +113,7 @@ def execute_python(code: str, description: str = "") -> str:
     try:
         cmd, error, using_sandbox = _build_execution_command(script_path)
         if error is not None:
-            return error
+            return with_tool_audit_payload(error, sandbox_used=False)
 
         result = subprocess.run(
             cmd,
@@ -124,6 +128,7 @@ def execute_python(code: str, description: str = "") -> str:
             and not _sandbox_required()
             and _is_sandbox_runtime_failure(result.stderr)
         ):
+            using_sandbox = False
             result = subprocess.run(
                 [sys.executable, script_path],
                 capture_output=True,
@@ -152,10 +157,14 @@ def execute_python(code: str, description: str = "") -> str:
                 size_kb = os.path.getsize(plot_path) // 1024
                 output += f"\n[Plot saved to {plot_path} ({size_kb} KB)]"
 
-        return output.strip() if output.strip() else "Script completed successfully (no output)."
+        final_output = output.strip() if output.strip() else "Script completed successfully (no output)."
+        return with_tool_audit_payload(final_output, sandbox_used=using_sandbox)
 
     except subprocess.TimeoutExpired:
-        return f"Script timed out after {_SCRIPT_TIMEOUT} seconds."
+        return with_tool_audit_payload(
+            f"Script timed out after {_SCRIPT_TIMEOUT} seconds.",
+            sandbox_used=False,
+        )
     finally:
         try:
             os.unlink(script_path)
