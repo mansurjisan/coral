@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import glob
 import re
-import shlex
 import subprocess
 
 from mcp.server.fastmcp import FastMCP

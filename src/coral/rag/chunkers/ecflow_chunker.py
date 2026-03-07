@@ -5,7 +5,6 @@ Splits ecFlow .def/.ecf files into task/family-level chunks.
 
 from __future__ import annotations
 
-import re
 
 
 class EcflowChunker:
