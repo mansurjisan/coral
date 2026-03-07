@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-143%20passing-brightgreen.svg)]()
 
 ## What It Does
 
@@ -59,6 +59,12 @@ You: What does the SCHISM parameter IHFSKIP control?
 | `recon-mcp` | Hurricane Hunters | Flight-level recon, vortex messages |
 | `erddap-mcp` | CoastWatch ERDDAP | Satellite SST, ocean color, in-situ data |
 | `ofs-mcp` | OFS | Regional nowcast/forecast guidance |
+| `adcirc-mcp` | ADCIRC | Model config parsing (fort.14/15/22) |
+| `goes-mcp` | GOES | Satellite imagery (GOES-16/18) |
+| `schism-mcp` | SCHISM | Model config, param.nml parsing |
+| `usgs-mcp` | USGS | Streamflow, river gauges, flood status |
+| `winds-mcp` | NDBC/ASOS | Wind observations, gust data |
+| `ww3-mcp` | WW3 | Wave forecasts, buoy data |
 
 ## Quick Start
 
@@ -87,8 +93,10 @@ coral serve --model qwen3:8b --port 7860
 ├──────────────┬───────────────────┤
 │  Ocean Data  │  HPC Tools        │
 │  ocean-mcp   │  netcdf-mcp       │
-│  (6 servers) │  slurm-mcp        │
-│              │  ecflow-mcp       │
+│ (12 servers) │  slurm-mcp        │
+│  108 tools   │  ecflow-mcp       │
+│              │  viz-mcp          │
+│              │  rag-mcp          │
 └──────┬───────┴────────┬──────────┘
    NOAA APIs       Local files
 ```
