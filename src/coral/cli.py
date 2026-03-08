@@ -7,6 +7,8 @@ import asyncio
 import typer
 from rich.console import Console
 
+from coral.config import get_model
+
 app = typer.Typer(
     name="coral",
     help="CORAL - Coastal Ocean Research AI Layer",
@@ -17,16 +19,19 @@ console = Console()
 
 @app.command()
 def chat(
-    model: str = typer.Option("qwen3:32b", help="Ollama model name"),
+    model: str = typer.Option("", help="Ollama model name (default: CORAL_MODEL or qwen3:32b)"),
     config: str = typer.Option("coral_config.json", help="MCP config path"),
     mode: str = typer.Option("multi", help="Agent mode: 'multi' (orchestrator) or 'single' (legacy)"),
 ):
     """Interactive chat with CORAL."""
     from coral.mcp_bridge import MCPBridge
 
+    model = model or get_model()
+
     async def run():
         bridge = MCPBridge(config)
-        console.print("[bold cyan]CORAL - Connecting to MCP servers...[/]")
+        console.print(f"[bold cyan]CORAL[/] — model: [green]{model}[/]")
+        console.print("[bold cyan]Connecting to MCP servers...[/]")
         await bridge.connect_all()
         tool_names = [t["function"]["name"] for t in bridge.tools]
         console.print(f"[green]Connected. {len(bridge.tools)} tools available.[/]")
@@ -126,7 +131,7 @@ def index(
 
 @app.command()
 def serve(
-    model: str = typer.Option("qwen3:32b", help="Ollama model name"),
+    model: str = typer.Option("", help="Ollama model name (default: CORAL_MODEL or qwen3:32b)"),
     config: str = typer.Option("coral_config.json", help="MCP config path"),
     port: int = typer.Option(7860, help="Web UI port"),
     mode: str = typer.Option("multi", help="Agent mode: 'multi' (orchestrator) or 'single' (legacy)"),
@@ -134,6 +139,7 @@ def serve(
     """Launch CORAL web UI."""
     from coral.web_ui import launch
 
+    model = model or get_model()
     launch(model=model, config=config, port=port, mode=mode)
 
 

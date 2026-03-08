@@ -3,7 +3,8 @@
 # Launch CORAL on Ursa: Ollama on GPU, agent on service node.
 #
 # Usage:
-#   bash slurm/start_all.sh
+#   bash slurm/start_all.sh                       # default model (qwen3:32b)
+#   CORAL_MODEL=deepseek-r1:70b bash slurm/start_all.sh   # custom model
 #
 # After jobs start, connect from your laptop:
 #   ssh -L 7860:<SERVICE_NODE>:7860 $USER@ursa-bastion
@@ -14,6 +15,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p logs
 
+export CORAL_MODEL="${CORAL_MODEL:-qwen3:32b}"
+echo "CORAL model: $CORAL_MODEL"
+
 # Clean up stale host file
 HOST_FILE=/scratch5/purged/$USER/coral_host.env
 rm -f "$HOST_FILE"
@@ -22,8 +26,8 @@ rm -f "$HOST_FILE"
 OLLAMA_JOB=$(sbatch --parsable "$SCRIPT_DIR/start_ollama.sh")
 echo "Submitted Ollama job: $OLLAMA_JOB"
 
-# Submit CORAL agent job (starts after Ollama)
-CORAL_JOB=$(sbatch --parsable --dependency=after:$OLLAMA_JOB "$SCRIPT_DIR/start_coral.sh")
+# Submit CORAL agent job (starts after Ollama) — pass model via environment
+CORAL_JOB=$(sbatch --parsable --dependency=after:$OLLAMA_JOB --export=ALL "$SCRIPT_DIR/start_coral.sh")
 echo "Submitted CORAL job:  $CORAL_JOB"
 
 echo ""

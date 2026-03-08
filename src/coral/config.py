@@ -10,6 +10,11 @@ DEFAULT_CONFIG_PATH = "coral_config.json"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 
 
+def get_model() -> str:
+    """Get model name from environment or default."""
+    return os.environ.get("CORAL_MODEL", DEFAULT_MODEL)
+
+
 def get_ollama_host() -> str:
     """Get Ollama host URL from environment or default."""
     return os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_HOST)

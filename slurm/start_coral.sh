@@ -60,5 +60,10 @@ if [ -f "$CORAL_DIR/containers/coral_sandbox.sif" ]; then
     export CORAL_SANDBOX_SIF="$CORAL_DIR/containers/coral_sandbox.sif"
 fi
 
+# Model selection: set CORAL_MODEL before running start_all.sh to switch models.
+# Examples: qwen3:32b (default), deepseek-r1:70b, qwen3:30b-a3b
+export CORAL_MODEL="${CORAL_MODEL:-qwen3:32b}"
+
 echo "Starting CORAL web UI on port 7860 at $(date)"
-coral serve --model qwen3:32b --config coral_config.json --port 7860
+echo "Model: $CORAL_MODEL"
+coral serve --config coral_config.json --port 7860
