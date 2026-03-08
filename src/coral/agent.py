@@ -7,6 +7,7 @@ from typing import Callable
 
 import ollama
 
+from coral.agents.base import _prune_history
 from coral.audit import record_audit_event, request_context, section_context
 from coral.mcp_bridge import MCPBridge
 from coral.prompts import CORAL_SYSTEM_PROMPT
@@ -101,6 +102,7 @@ class CoralAgent:
             record_audit_event("query_start", message_chars=len(user_message))
             try:
                 self.history.append({"role": "user", "content": user_message})
+                _prune_history(self.history)
 
                 # Filter tools to relevant subset for this query
                 tools = _select_tools(user_message, self.mcp.tools)

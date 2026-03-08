@@ -13,6 +13,37 @@ from coral.mcp_bridge import MCPBridge
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
+MAX_HISTORY_CHARS = 80_000  # ~20K tokens at ~4 chars/token
+
+
+def _estimate_history_chars(history: list[dict]) -> int:
+    """Estimate total character count of conversation history."""
+    total = 0
+    for msg in history:
+        total += len(msg.get("content", ""))
+        for tc in msg.get("tool_calls", []):
+            total += len(str(tc.get("function", {}).get("arguments", "")))
+    return total
+
+
+def _prune_history(history: list[dict], max_chars: int = MAX_HISTORY_CHARS) -> None:
+    """Drop oldest message pairs until history fits within the budget.
+
+    Preserves the most recent user message and never leaves the history
+    in a broken state (e.g. orphaned tool results without a preceding
+    assistant message).
+    """
+    while len(history) > 2 and _estimate_history_chars(history) > max_chars:
+        # Remove the oldest message. Skip if it would leave an orphan.
+        if history[0]["role"] == "user" and len(history) > 1 and history[1]["role"] == "assistant":
+            # Drop the user-assistant pair together
+            history.pop(0)
+            history.pop(0)
+            # Also drop any trailing tool results from that assistant turn
+            while history and history[0]["role"] == "tool":
+                history.pop(0)
+        else:
+            history.pop(0)
 
 
 def _truncate_result(result_str: str) -> str:
@@ -60,6 +91,7 @@ class BaseAgent:
         """Run the agent loop: user message -> tool calls -> response."""
         with section_context(self.name):
             self.history.append({"role": "user", "content": user_message})
+            _prune_history(self.history)
 
             messages = [{"role": "system", "content": self.system_prompt}] + self.history
             tools = self.tools

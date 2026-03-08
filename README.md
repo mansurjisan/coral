@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-197%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-220%20passing-brightgreen.svg)]()
 
 ## What It Does
 
@@ -87,8 +87,11 @@ pip install -e .
 # Pull a model
 ollama pull qwen3:8b
 
-# Chat
+# Chat (multi-agent orchestrator, default)
 coral chat --model qwen3:8b
+
+# Chat (single-agent legacy mode)
+coral chat --model qwen3:8b --mode single
 
 # Web UI
 coral serve --model qwen3:8b --port 7860
@@ -109,7 +112,15 @@ coral serve --model qwen3:8b --port 7860
    NOAA APIs      Indexed docs     HPC state
 ```
 
-On Ursa, `viz-mcp` is expected to run through `containers/coral_sandbox.sif` via Apptainer. See [setup_ursa.md](/mnt/d/coral/docs/setup_ursa.md).
+On Ursa, `viz-mcp` runs through `containers/coral_sandbox.sif` via Apptainer.
+
+## Audit & Policy
+
+CORAL includes structured audit logging and a declarative authorization policy:
+
+- **Audit logging** — Every query and tool call is recorded to `logs/coral_audit.jsonl` with timestamps, routing decisions, tool timing, and sandbox usage. Set `CORAL_AUDIT_LOG` to customize the log path.
+- **Policy manifest** (`src/coral/policy_manifest.json`) — Defines which MCP servers each agent section can access, trust classes, and per-environment sandbox requirements. Unknown servers in `coral_config.json` are rejected at startup.
+- **Sandbox enforcement** — Set `CORAL_REQUIRE_SANDBOX=1` to block host-side Python execution (recommended for shared HPC).
 
 ## Related
 

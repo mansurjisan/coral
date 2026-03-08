@@ -6,6 +6,7 @@ import logging
 
 import ollama
 
+from coral.agents.base import _prune_history
 from coral.audit import record_audit_event, request_context, set_request_route
 from coral.agents.code_agent import create_code_agent
 from coral.agents.data_agent import create_data_agent
@@ -171,6 +172,7 @@ class Orchestrator:
             record_audit_event("query_start", message_chars=len(user_message))
             try:
                 self.history.append({"role": "user", "content": user_message})
+                _prune_history(self.history)
 
                 categories = await self.classify(user_message)
                 set_request_route(categories)
@@ -186,7 +188,14 @@ class Orchestrator:
 
                     for cat in categories:
                         agent = self.agents[cat]
-                        result = await agent.chat(accumulated_context)
+                        try:
+                            result = await agent.chat(accumulated_context)
+                        except Exception as agent_exc:
+                            logger.error("Agent %s failed: %s", cat, agent_exc)
+                            record_audit_event(
+                                "agent_error", section=cat, error=str(agent_exc),
+                            )
+                            result = f"[{cat} section unavailable: {agent_exc}]"
                         responses.append(f"[{agent.name.upper()} AGENT]\n{result}")
 
                         accumulated_context = (

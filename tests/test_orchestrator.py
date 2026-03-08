@@ -198,6 +198,34 @@ class TestOrchestratorChat:
         assert result == "Synthesized answer."
 
     @pytest.mark.asyncio
+    async def test_agent_failure_returns_partial_results(self, mock_bridge):
+        """If one agent fails, the orchestrator should still synthesize partial results."""
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+
+        # DATA agent will succeed, CODE agent will fail
+        call_count = 0
+
+        async def mock_chat(msg):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # CODE agent (second call)
+                raise RuntimeError("API timeout")
+            return "Water level data found."
+
+        orch.agents["DATA"].chat = mock_chat
+        orch.agents["CODE"].chat = mock_chat
+
+        mock_synth_response = MagicMock()
+        mock_synth_response.message.content = "Partial answer with data."
+
+        with patch("coral.agents.orchestrator.ollama") as mock_orch_ollama:
+            mock_orch_ollama.chat.return_value = mock_synth_response
+            orch.classify = AsyncMock(return_value=["DATA", "CODE"])
+            result = await orch.chat("Plot the water levels")
+
+        assert result == "Partial answer with data."
+
+    @pytest.mark.asyncio
     async def test_reset_clears_all(self, mock_bridge):
         orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
 

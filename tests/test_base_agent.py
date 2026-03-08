@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from coral.agents.base import BaseAgent, _truncate_result
+from coral.agents.base import BaseAgent, _estimate_history_chars, _prune_history, _truncate_result
 
 
 class TestTruncateResult:
@@ -24,6 +24,67 @@ class TestTruncateResult:
         assert "line 0" in result
         assert "line 199" in result
         assert "truncated" in result
+
+
+class TestHistoryPruning:
+    def test_estimate_chars(self):
+        history = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "world"},
+        ]
+        assert _estimate_history_chars(history) == 10
+
+    def test_estimate_includes_tool_call_args(self):
+        history = [
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"function": {"name": "t", "arguments": {"key": "value"}}}
+            ]},
+        ]
+        assert _estimate_history_chars(history) > 0
+
+    def test_prune_noop_when_small(self):
+        history = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        original_len = len(history)
+        _prune_history(history, max_chars=1000)
+        assert len(history) == original_len
+
+    def test_prune_removes_oldest_pair(self):
+        history = [
+            {"role": "user", "content": "x" * 5000},
+            {"role": "assistant", "content": "y" * 5000},
+            {"role": "user", "content": "recent question"},
+            {"role": "assistant", "content": "recent answer"},
+        ]
+        _prune_history(history, max_chars=1000)
+        # Oldest pair should be gone, recent pair kept
+        assert len(history) == 2
+        assert history[0]["content"] == "recent question"
+
+    def test_prune_removes_trailing_tool_results(self):
+        history = [
+            {"role": "user", "content": "x" * 3000},
+            {"role": "assistant", "content": "calling tool"},
+            {"role": "tool", "content": "t" * 3000},
+            {"role": "tool", "content": "t" * 3000},
+            {"role": "user", "content": "recent"},
+            {"role": "assistant", "content": "done"},
+        ]
+        _prune_history(history, max_chars=500)
+        # After pruning oldest user+assistant+tool messages, recent pair remains
+        assert history[-1]["content"] == "done"
+        assert all(m["role"] != "tool" or m["content"] == "done" for m in history[:2])
+
+    def test_prune_preserves_minimum_two_messages(self):
+        history = [
+            {"role": "user", "content": "x" * 100_000},
+            {"role": "assistant", "content": "y" * 100_000},
+        ]
+        _prune_history(history, max_chars=100)
+        # Should keep at least 2 messages (the guard prevents over-pruning)
+        assert len(history) == 2
 
 
 class TestBaseAgent:
