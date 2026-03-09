@@ -7,7 +7,7 @@ import asyncio
 import typer
 from rich.console import Console
 
-from coral.config import get_all_model_assignments, get_model
+from coral.config import get_all_model_assignments, get_model, set_cli_model
 
 app = typer.Typer(
     name="coral",
@@ -26,11 +26,14 @@ def chat(
     """Interactive chat with CORAL."""
     from coral.mcp_bridge import MCPBridge
 
-    model = model or get_model()
+    # Register CLI model into the central resolver. All get_model() calls
+    # now see it as tier 3 in the fallback chain.
+    set_cli_model(model)
+    resolved_model = get_model()
 
     async def run():
         bridge = MCPBridge(config)
-        console.print(f"[bold cyan]CORAL[/] — model: [green]{model}[/]")
+        console.print(f"[bold cyan]CORAL[/] — model: [green]{resolved_model}[/]")
         console.print("[bold cyan]Connecting to MCP servers...[/]")
         await bridge.connect_all()
         tool_names = [t["function"]["name"] for t in bridge.tools]
@@ -50,17 +53,17 @@ def chat(
                 console.print(f"  [yellow]Tool:[/] {name}({args_short})")
                 console.print(f"  [dim]{result_short}[/]")
 
-            agent = CoralAgent(model=model, mcp_bridge=bridge, on_tool_call=on_tool_call)
+            agent = CoralAgent(model=resolved_model, mcp_bridge=bridge, on_tool_call=on_tool_call)
             console.print("[dim]Mode: single agent (legacy)[/]\n")
         else:
             from coral.agents.orchestrator import Orchestrator
 
-            agent = Orchestrator(model=model, mcp_bridge=bridge)
+            agent = Orchestrator(model=resolved_model, mcp_bridge=bridge)
             models = get_all_model_assignments()
             unique_models = set(models.values())
             if len(unique_models) > 1:
                 for stage, m in models.items():
-                    if m != model:
+                    if m != resolved_model:
                         console.print(f"  [dim]{stage}: {m}[/]")
             console.print("[dim]Mode: multi-agent (data + code + workflow)[/]\n")
 
@@ -145,8 +148,9 @@ def serve(
     """Launch CORAL web UI."""
     from coral.web_ui import launch
 
-    model = model or get_model()
-    launch(model=model, config=config, port=port, mode=mode)
+    set_cli_model(model)
+    resolved_model = get_model()
+    launch(model=resolved_model, config=config, port=port, mode=mode)
 
 
 if __name__ == "__main__":

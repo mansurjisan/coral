@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from coral.agents.orchestrator import Orchestrator, _keyword_classify
+from coral.config import set_cli_model
 
 
 # ── Keyword classification tests ──
@@ -287,18 +288,51 @@ class TestOrchestratorModels:
         assert orch.router_model == "small-router"
         assert orch.synthesis_model == "synth-model"
 
-    def test_cli_model_overrides_when_different(self, mock_bridge, monkeypatch):
-        """When CLI --model differs from CORAL_MODEL, agents use CLI model."""
-        monkeypatch.setenv("CORAL_MODEL", "qwen3:32b")
+    def test_cli_model_is_tier_3(self, mock_bridge, monkeypatch):
+        """CLI --model is tier 3: stage env -> CORAL_MODEL -> CLI --model."""
+        monkeypatch.delenv("CORAL_MODEL", raising=False)
         monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
         monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
         monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
         monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
         monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
-        orch = Orchestrator(model="custom-model", mcp_bridge=mock_bridge)
-        # CLI model takes precedence when no stage-specific override
-        assert orch.agents["DATA"].model == "custom-model"
-        assert orch.router_model == "custom-model"
+        # Simulate CLI setting --model
+        set_cli_model("cli-model")
+        try:
+            orch = Orchestrator(model="cli-model", mcp_bridge=mock_bridge)
+            assert orch.agents["DATA"].model == "cli-model"
+            assert orch.router_model == "cli-model"
+        finally:
+            set_cli_model("")
+
+    def test_coral_model_env_beats_cli(self, mock_bridge, monkeypatch):
+        """CORAL_MODEL env var takes precedence over CLI --model."""
+        monkeypatch.setenv("CORAL_MODEL", "env-model")
+        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
+        set_cli_model("cli-model")
+        try:
+            orch = Orchestrator(model="cli-model", mcp_bridge=mock_bridge)
+            # CORAL_MODEL wins over CLI
+            assert orch.agents["DATA"].model == "env-model"
+            assert orch.router_model == "env-model"
+        finally:
+            set_cli_model("")
+
+    def test_stage_env_beats_coral_model(self, mock_bridge, monkeypatch):
+        """Stage env var takes precedence over CORAL_MODEL."""
+        monkeypatch.setenv("CORAL_MODEL", "env-model")
+        monkeypatch.setenv("CORAL_MODEL_CODE", "stage-coder")
+        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
+        orch = Orchestrator(model="env-model", mcp_bridge=mock_bridge)
+        assert orch.agents["CODE"].model == "stage-coder"
+        assert orch.agents["DATA"].model == "env-model"
 
 
 # ── Agent tool filtering tests ──

@@ -9,36 +9,62 @@ DEFAULT_MODEL = "qwen3:32b"
 DEFAULT_CONFIG_PATH = "coral_config.json"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 
-# Stage-specific env var names, resolved with fallback chaining:
-#   stage env var -> CORAL_MODEL -> CLI --model -> DEFAULT_MODEL
+# Stage-specific env var names.
 _STAGE_ENV_VARS = {
     "router": "CORAL_MODEL_ROUTER",
     "synthesis": "CORAL_MODEL_SYNTHESIS",
     "data": "CORAL_MODEL_DATA",
     "code": "CORAL_MODEL_CODE",
     "workflow": "CORAL_MODEL_WORKFLOW",
+    "escalation": "CORAL_MODEL_ESCALATION",
 }
+
+# Set once by CLI at startup so the resolver has a single source of truth.
+_cli_model: str = ""
+
+
+def set_cli_model(model: str) -> None:
+    """Register the model passed via CLI --model flag.
+
+    Called once at CLI startup. All subsequent get_model() calls use this
+    as the third tier in the fallback chain.
+    """
+    global _cli_model
+    _cli_model = model.strip() if model else ""
 
 
 def get_model(stage: str | None = None) -> str:
     """Resolve model name with fallback chaining.
 
-    Resolution order:
+    Resolution order (first non-empty wins):
       1. Stage-specific env var (e.g. CORAL_MODEL_CODE)
-      2. CORAL_MODEL
-      3. DEFAULT_MODEL
+      2. CORAL_MODEL env var
+      3. CLI --model (registered via set_cli_model)
+      4. DEFAULT_MODEL
 
     Args:
-        stage: Optional stage name (router, synthesis, data, code, workflow).
-               If None, returns the base model.
+        stage: Optional stage name (router, synthesis, data, code, workflow,
+               escalation). If None, skips step 1.
     """
+    # 1. Stage-specific override
     if stage:
         env_var = _STAGE_ENV_VARS.get(stage)
         if env_var:
-            stage_model = os.environ.get(env_var, "").strip()
-            if stage_model:
-                return stage_model
-    return os.environ.get("CORAL_MODEL", DEFAULT_MODEL)
+            value = os.environ.get(env_var, "").strip()
+            if value:
+                return value
+
+    # 2. Base env var
+    base_env = os.environ.get("CORAL_MODEL", "").strip()
+    if base_env:
+        return base_env
+
+    # 3. CLI --model
+    if _cli_model:
+        return _cli_model
+
+    # 4. Hardcoded default
+    return DEFAULT_MODEL
 
 
 def get_all_model_assignments() -> dict[str, str]:
@@ -50,6 +76,7 @@ def get_all_model_assignments() -> dict[str, str]:
         "data": get_model("data"),
         "code": get_model("code"),
         "workflow": get_model("workflow"),
+        "escalation": get_model("escalation"),
     }
 
 

@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-232%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-233%20passing-brightgreen.svg)]()
 
 ## What It Does
 

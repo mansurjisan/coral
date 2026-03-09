@@ -99,7 +99,7 @@ class CoralAgent:
         before producing a final text response.
         """
         with request_context(mode="single", route=["SINGLE"]), section_context("single"):
-            record_audit_event("query_start", message_chars=len(user_message))
+            record_audit_event("query_start", message_chars=len(user_message), model=self.model)
             try:
                 self.history.append({"role": "user", "content": user_message})
                 _prune_history(self.history)

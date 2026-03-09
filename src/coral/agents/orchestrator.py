@@ -128,24 +128,18 @@ class Orchestrator:
     """Routes queries to specialized agents and synthesizes responses."""
 
     def __init__(self, model: str, mcp_bridge: MCPBridge):
+        # model arg kept for API compatibility but all resolution goes
+        # through the central get_model() resolver in config.py.
         self.model = model
         self.mcp_bridge = mcp_bridge
-        self.router_model = get_model("router") if model == get_model() else model
-        self.synthesis_model = get_model("synthesis") if model == get_model() else model
+        self.router_model = get_model("router")
+        self.synthesis_model = get_model("synthesis")
         self.agents = {
-            "DATA": create_data_agent(self._section_model("data"), mcp_bridge),
-            "CODE": create_code_agent(self._section_model("code"), mcp_bridge),
-            "WORKFLOW": create_workflow_agent(self._section_model("workflow"), mcp_bridge),
+            "DATA": create_data_agent(get_model("data"), mcp_bridge),
+            "CODE": create_code_agent(get_model("code"), mcp_bridge),
+            "WORKFLOW": create_workflow_agent(get_model("workflow"), mcp_bridge),
         }
         self.history: list[dict] = []
-
-    def _section_model(self, stage: str) -> str:
-        """Resolve model for a section using fallback chaining."""
-        resolved = get_model(stage)
-        # If no stage-specific override, use the model passed to __init__
-        if resolved == get_model() and self.model != get_model():
-            return self.model
-        return resolved
 
     async def classify(self, query: str) -> list[str]:
         """Classify user query into agent categories.
