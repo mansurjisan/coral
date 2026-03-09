@@ -67,7 +67,7 @@ def launch(model: str, config: str, port: int, mode: str = "multi"):
         # Per-session agent state (invisible to user)
         session_agent = gr.State(None)
 
-        chatbot = gr.Chatbot(type="messages")
+        chatbot = gr.Chatbot()
         msg = gr.Textbox(placeholder="Type your question...", show_label=False)
 
         gr.Examples(
