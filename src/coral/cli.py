@@ -7,7 +7,7 @@ import asyncio
 import typer
 from rich.console import Console
 
-from coral.config import get_model
+from coral.config import get_all_model_assignments, get_model
 
 app = typer.Typer(
     name="coral",
@@ -56,6 +56,12 @@ def chat(
             from coral.agents.orchestrator import Orchestrator
 
             agent = Orchestrator(model=model, mcp_bridge=bridge)
+            models = get_all_model_assignments()
+            unique_models = set(models.values())
+            if len(unique_models) > 1:
+                for stage, m in models.items():
+                    if m != model:
+                        console.print(f"  [dim]{stage}: {m}[/]")
             console.print("[dim]Mode: multi-agent (data + code + workflow)[/]\n")
 
         console.print("[dim]Type 'exit' or 'quit' to leave. Ctrl+C to interrupt.[/]\n")

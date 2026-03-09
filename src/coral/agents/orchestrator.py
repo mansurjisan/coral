@@ -11,6 +11,7 @@ from coral.audit import record_audit_event, request_context, set_request_route
 from coral.agents.code_agent import create_code_agent
 from coral.agents.data_agent import create_data_agent
 from coral.agents.workflow_agent import create_workflow_agent
+from coral.config import get_model
 from coral.mcp_bridge import MCPBridge
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,9 @@ You are CORAL, an AI assistant for NOAA ocean scientists. \
 Synthesize the provided information into a clear, unified response. \
 Do not mention 'agents' or internal routing."""
 
+# Map section categories to config stage names for model resolution.
+_SECTION_STAGE = {"DATA": "data", "CODE": "code", "WORKFLOW": "workflow"}
+
 
 class Orchestrator:
     """Routes queries to specialized agents and synthesizes responses."""
@@ -126,12 +130,22 @@ class Orchestrator:
     def __init__(self, model: str, mcp_bridge: MCPBridge):
         self.model = model
         self.mcp_bridge = mcp_bridge
+        self.router_model = get_model("router") if model == get_model() else model
+        self.synthesis_model = get_model("synthesis") if model == get_model() else model
         self.agents = {
-            "DATA": create_data_agent(model, mcp_bridge),
-            "CODE": create_code_agent(model, mcp_bridge),
-            "WORKFLOW": create_workflow_agent(model, mcp_bridge),
+            "DATA": create_data_agent(self._section_model("data"), mcp_bridge),
+            "CODE": create_code_agent(self._section_model("code"), mcp_bridge),
+            "WORKFLOW": create_workflow_agent(self._section_model("workflow"), mcp_bridge),
         }
         self.history: list[dict] = []
+
+    def _section_model(self, stage: str) -> str:
+        """Resolve model for a section using fallback chaining."""
+        resolved = get_model(stage)
+        # If no stage-specific override, use the model passed to __init__
+        if resolved == get_model() and self.model != get_model():
+            return self.model
+        return resolved
 
     async def classify(self, query: str) -> list[str]:
         """Classify user query into agent categories.
@@ -146,7 +160,7 @@ class Orchestrator:
 
         # Fall back to LLM classification
         response = ollama.chat(
-            model=self.model,
+            model=self.router_model,
             messages=[
                 {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
                 {"role": "user", "content": query},
@@ -163,13 +177,18 @@ class Orchestrator:
             logger.warning("Could not classify query, defaulting to DATA: %s", raw)
             categories = ["DATA"]
 
-        logger.info("LLM-routed query to: %s", categories)
+        logger.info("LLM-routed query to: %s (model=%s)", categories, self.router_model)
         return categories
 
     async def chat(self, user_message: str) -> str:
         """Route query to appropriate agent(s) and combine responses."""
         with request_context(mode="multi"):
-            record_audit_event("query_start", message_chars=len(user_message))
+            record_audit_event(
+                "query_start",
+                message_chars=len(user_message),
+                router_model=self.router_model,
+                synthesis_model=self.synthesis_model,
+            )
             try:
                 self.history.append({"role": "user", "content": user_message})
                 _prune_history(self.history)
@@ -180,6 +199,11 @@ class Orchestrator:
 
                 if len(categories) == 1:
                     agent = self.agents[categories[0]]
+                    record_audit_event(
+                        "section_start",
+                        section=categories[0],
+                        section_model=agent.model,
+                    )
                     response = await agent.chat(user_message)
                 else:
                     # Multi-agent: sequential execution, pass context forward
@@ -188,6 +212,11 @@ class Orchestrator:
 
                     for cat in categories:
                         agent = self.agents[cat]
+                        record_audit_event(
+                            "section_start",
+                            section=cat,
+                            section_model=agent.model,
+                        )
                         try:
                             result = await agent.chat(accumulated_context)
                         except Exception as agent_exc:
@@ -227,7 +256,7 @@ class Orchestrator:
         )
 
         response = ollama.chat(
-            model=self.model,
+            model=self.synthesis_model,
             messages=[
                 {"role": "system", "content": SYNTHESIS_PROMPT},
                 {"role": "user", "content": synthesis_prompt},

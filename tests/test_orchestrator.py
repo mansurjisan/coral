@@ -239,6 +239,68 @@ class TestOrchestratorChat:
         assert len(orch.agents["DATA"].history) == 0
 
 
+# ── Per-stage model resolution tests ──
+
+
+class TestOrchestratorModels:
+    @pytest.fixture
+    def mock_bridge(self):
+        bridge = MagicMock()
+        bridge.tools = []
+        bridge.tool_server_map = {}
+        return bridge
+
+    def test_default_all_same_model(self, mock_bridge, monkeypatch):
+        monkeypatch.delenv("CORAL_MODEL", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+        orch = Orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
+        assert orch.router_model == "qwen3:32b"
+        assert orch.synthesis_model == "qwen3:32b"
+        assert orch.agents["DATA"].model == "qwen3:32b"
+        assert orch.agents["CODE"].model == "qwen3:32b"
+        assert orch.agents["WORKFLOW"].model == "qwen3:32b"
+
+    def test_stage_override_code(self, mock_bridge, monkeypatch):
+        monkeypatch.setenv("CORAL_MODEL", "qwen3:32b")
+        monkeypatch.setenv("CORAL_MODEL_CODE", "qwen3-coder")
+        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
+        orch = Orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
+        assert orch.agents["CODE"].model == "qwen3-coder"
+        assert orch.agents["DATA"].model == "qwen3:32b"
+        assert orch.agents["WORKFLOW"].model == "qwen3:32b"
+
+    def test_router_and_synthesis_override(self, mock_bridge, monkeypatch):
+        monkeypatch.setenv("CORAL_MODEL", "qwen3:32b")
+        monkeypatch.setenv("CORAL_MODEL_ROUTER", "small-router")
+        monkeypatch.setenv("CORAL_MODEL_SYNTHESIS", "synth-model")
+        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+        orch = Orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
+        assert orch.router_model == "small-router"
+        assert orch.synthesis_model == "synth-model"
+
+    def test_cli_model_overrides_when_different(self, mock_bridge, monkeypatch):
+        """When CLI --model differs from CORAL_MODEL, agents use CLI model."""
+        monkeypatch.setenv("CORAL_MODEL", "qwen3:32b")
+        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
+        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
+        orch = Orchestrator(model="custom-model", mcp_bridge=mock_bridge)
+        # CLI model takes precedence when no stage-specific override
+        assert orch.agents["DATA"].model == "custom-model"
+        assert orch.router_model == "custom-model"
+
+
 # ── Agent tool filtering tests ──
 
 
