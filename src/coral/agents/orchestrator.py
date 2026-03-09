@@ -11,7 +11,6 @@ from coral.audit import record_audit_event, request_context, set_request_route
 from coral.agents.code_agent import create_code_agent
 from coral.agents.data_agent import create_data_agent
 from coral.agents.workflow_agent import create_workflow_agent
-from coral.config import get_model
 from coral.mcp_bridge import MCPBridge
 
 logger = logging.getLogger(__name__)
@@ -120,24 +119,32 @@ You are CORAL, an AI assistant for NOAA ocean scientists. \
 Synthesize the provided information into a clear, unified response. \
 Do not mention 'agents' or internal routing."""
 
-# Map section categories to config stage names for model resolution.
-_SECTION_STAGE = {"DATA": "data", "CODE": "code", "WORKFLOW": "workflow"}
-
-
 class Orchestrator:
-    """Routes queries to specialized agents and synthesizes responses."""
+    """Routes queries to specialized agents and synthesizes responses.
 
-    def __init__(self, model: str, mcp_bridge: MCPBridge):
-        # model arg kept for API compatibility but all resolution goes
-        # through the central get_model() resolver in config.py.
+    All model arguments are constructor-authoritative. Callers resolve
+    model names (via config.get_model or otherwise) before constructing.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        mcp_bridge: MCPBridge,
+        *,
+        router_model: str | None = None,
+        synthesis_model: str | None = None,
+        data_model: str | None = None,
+        code_model: str | None = None,
+        workflow_model: str | None = None,
+    ):
         self.model = model
         self.mcp_bridge = mcp_bridge
-        self.router_model = get_model("router")
-        self.synthesis_model = get_model("synthesis")
+        self.router_model = router_model or model
+        self.synthesis_model = synthesis_model or model
         self.agents = {
-            "DATA": create_data_agent(get_model("data"), mcp_bridge),
-            "CODE": create_code_agent(get_model("code"), mcp_bridge),
-            "WORKFLOW": create_workflow_agent(get_model("workflow"), mcp_bridge),
+            "DATA": create_data_agent(data_model or model, mcp_bridge),
+            "CODE": create_code_agent(code_model or model, mcp_bridge),
+            "WORKFLOW": create_workflow_agent(workflow_model or model, mcp_bridge),
         }
         self.history: list[dict] = []
 
@@ -263,3 +270,24 @@ class Orchestrator:
         self.history.clear()
         for agent in self.agents.values():
             agent.clear_history()
+
+
+def create_orchestrator(model: str, mcp_bridge: MCPBridge) -> Orchestrator:
+    """Create an Orchestrator with models resolved from the central config.
+
+    This is the standard factory for CLI and web UI paths. It reads
+    get_model(stage) for each stage, so env vars and set_cli_model()
+    are respected. Direct Orchestrator() construction is available for
+    tests and library callers who want explicit control.
+    """
+    from coral.config import get_model
+
+    return Orchestrator(
+        model=model,
+        mcp_bridge=mcp_bridge,
+        router_model=get_model("router"),
+        synthesis_model=get_model("synthesis"),
+        data_model=get_model("data"),
+        code_model=get_model("code"),
+        workflow_model=get_model("workflow"),
+    )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import gradio as gr
 
 from coral.agent import CoralAgent
-from coral.agents.orchestrator import Orchestrator
+from coral.agents.orchestrator import create_orchestrator
 from coral.mcp_bridge import MCPBridge
 
 _bridge: MCPBridge | None = None
@@ -35,7 +35,7 @@ def _create_session_agent():
     """Create a new agent for a Gradio session based on the configured mode."""
     if _mode == "single":
         return CoralAgent(model=_model, mcp_bridge=_bridge)
-    return Orchestrator(model=_model, mcp_bridge=_bridge)
+    return create_orchestrator(model=_model, mcp_bridge=_bridge)
 
 
 async def _respond(message: str, history: list, session_agent):

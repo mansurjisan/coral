@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from coral.agents.orchestrator import Orchestrator, _keyword_classify
+from coral.agents.orchestrator import Orchestrator, _keyword_classify, create_orchestrator
 from coral.config import set_cli_model
 
 
@@ -243,7 +243,9 @@ class TestOrchestratorChat:
 # ── Per-stage model resolution tests ──
 
 
-class TestOrchestratorModels:
+class TestOrchestratorConstructor:
+    """Direct construction: constructor args are authoritative."""
+
     @pytest.fixture
     def mock_bridge(self):
         bridge = MagicMock()
@@ -251,13 +253,7 @@ class TestOrchestratorModels:
         bridge.tool_server_map = {}
         return bridge
 
-    def test_default_all_same_model(self, mock_bridge, monkeypatch):
-        monkeypatch.delenv("CORAL_MODEL", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
+    def test_default_all_same_model(self, mock_bridge):
         orch = Orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
         assert orch.router_model == "qwen3:32b"
         assert orch.synthesis_model == "qwen3:32b"
@@ -265,41 +261,65 @@ class TestOrchestratorModels:
         assert orch.agents["CODE"].model == "qwen3:32b"
         assert orch.agents["WORKFLOW"].model == "qwen3:32b"
 
+    def test_explicit_stage_models(self, mock_bridge):
+        orch = Orchestrator(
+            model="base",
+            mcp_bridge=mock_bridge,
+            router_model="router-m",
+            synthesis_model="synth-m",
+            code_model="code-m",
+        )
+        assert orch.router_model == "router-m"
+        assert orch.synthesis_model == "synth-m"
+        assert orch.agents["CODE"].model == "code-m"
+        # Unset stages fall back to model=
+        assert orch.agents["DATA"].model == "base"
+        assert orch.agents["WORKFLOW"].model == "base"
+
+
+class TestCreateOrchestratorFactory:
+    """Factory uses the central config resolver (env vars + CLI model)."""
+
+    @pytest.fixture
+    def mock_bridge(self):
+        bridge = MagicMock()
+        bridge.tools = []
+        bridge.tool_server_map = {}
+        return bridge
+
+    def _clear_env(self, monkeypatch):
+        for var in [
+            "CORAL_MODEL", "CORAL_MODEL_ROUTER", "CORAL_MODEL_SYNTHESIS",
+            "CORAL_MODEL_DATA", "CORAL_MODEL_CODE", "CORAL_MODEL_WORKFLOW",
+            "CORAL_MODEL_ESCALATION",
+        ]:
+            monkeypatch.delenv(var, raising=False)
+        set_cli_model("")
+
     def test_stage_override_code(self, mock_bridge, monkeypatch):
+        self._clear_env(monkeypatch)
         monkeypatch.setenv("CORAL_MODEL", "qwen3:32b")
         monkeypatch.setenv("CORAL_MODEL_CODE", "qwen3-coder")
-        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
-        orch = Orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
+        orch = create_orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
         assert orch.agents["CODE"].model == "qwen3-coder"
         assert orch.agents["DATA"].model == "qwen3:32b"
         assert orch.agents["WORKFLOW"].model == "qwen3:32b"
 
     def test_router_and_synthesis_override(self, mock_bridge, monkeypatch):
+        self._clear_env(monkeypatch)
         monkeypatch.setenv("CORAL_MODEL", "qwen3:32b")
         monkeypatch.setenv("CORAL_MODEL_ROUTER", "small-router")
         monkeypatch.setenv("CORAL_MODEL_SYNTHESIS", "synth-model")
-        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
-        orch = Orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
+        orch = create_orchestrator(model="qwen3:32b", mcp_bridge=mock_bridge)
         assert orch.router_model == "small-router"
         assert orch.synthesis_model == "synth-model"
 
     def test_cli_model_is_tier_3(self, mock_bridge, monkeypatch):
         """CLI --model is tier 3: stage env -> CORAL_MODEL -> CLI --model."""
-        monkeypatch.delenv("CORAL_MODEL", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
-        # Simulate CLI setting --model
+        self._clear_env(monkeypatch)
         set_cli_model("cli-model")
         try:
-            orch = Orchestrator(model="cli-model", mcp_bridge=mock_bridge)
+            orch = create_orchestrator(model="cli-model", mcp_bridge=mock_bridge)
             assert orch.agents["DATA"].model == "cli-model"
             assert orch.router_model == "cli-model"
         finally:
@@ -307,16 +327,11 @@ class TestOrchestratorModels:
 
     def test_coral_model_env_beats_cli(self, mock_bridge, monkeypatch):
         """CORAL_MODEL env var takes precedence over CLI --model."""
+        self._clear_env(monkeypatch)
         monkeypatch.setenv("CORAL_MODEL", "env-model")
-        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_CODE", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
         set_cli_model("cli-model")
         try:
-            orch = Orchestrator(model="cli-model", mcp_bridge=mock_bridge)
-            # CORAL_MODEL wins over CLI
+            orch = create_orchestrator(model="cli-model", mcp_bridge=mock_bridge)
             assert orch.agents["DATA"].model == "env-model"
             assert orch.router_model == "env-model"
         finally:
@@ -324,13 +339,10 @@ class TestOrchestratorModels:
 
     def test_stage_env_beats_coral_model(self, mock_bridge, monkeypatch):
         """Stage env var takes precedence over CORAL_MODEL."""
+        self._clear_env(monkeypatch)
         monkeypatch.setenv("CORAL_MODEL", "env-model")
         monkeypatch.setenv("CORAL_MODEL_CODE", "stage-coder")
-        monkeypatch.delenv("CORAL_MODEL_DATA", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_WORKFLOW", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_ROUTER", raising=False)
-        monkeypatch.delenv("CORAL_MODEL_SYNTHESIS", raising=False)
-        orch = Orchestrator(model="env-model", mcp_bridge=mock_bridge)
+        orch = create_orchestrator(model="env-model", mcp_bridge=mock_bridge)
         assert orch.agents["CODE"].model == "stage-coder"
         assert orch.agents["DATA"].model == "env-model"
 

@@ -56,9 +56,9 @@ def chat(
             agent = CoralAgent(model=resolved_model, mcp_bridge=bridge, on_tool_call=on_tool_call)
             console.print("[dim]Mode: single agent (legacy)[/]\n")
         else:
-            from coral.agents.orchestrator import Orchestrator
+            from coral.agents.orchestrator import create_orchestrator
 
-            agent = Orchestrator(model=resolved_model, mcp_bridge=bridge)
+            agent = create_orchestrator(model=resolved_model, mcp_bridge=bridge)
             models = get_all_model_assignments()
             unique_models = set(models.values())
             if len(unique_models) > 1:

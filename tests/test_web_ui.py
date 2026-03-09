@@ -80,7 +80,7 @@ class TestRespond:
 
     @pytest.mark.asyncio
     async def test_multi_mode_creates_orchestrator(self):
-        """Multi mode should create an Orchestrator session agent."""
+        """Multi mode should create an Orchestrator via create_orchestrator."""
         import coral.web_ui as web_ui
 
         mock_bridge = MagicMock()
@@ -89,12 +89,12 @@ class TestRespond:
         web_ui._model = "test-model"
         web_ui._mode = "multi"
 
-        with patch("coral.web_ui.Orchestrator") as MockOrchestrator:
-            mock_agent = MockOrchestrator.return_value
+        with patch("coral.web_ui.create_orchestrator") as MockFactory:
+            mock_agent = MockFactory.return_value
             mock_agent.chat = AsyncMock(return_value="Hello from multi!")
 
             response, agent = await _respond("hi", [], None)
 
         assert response == "Hello from multi!"
         assert agent is mock_agent
-        MockOrchestrator.assert_called_once_with(model="test-model", mcp_bridge=mock_bridge)
+        MockFactory.assert_called_once_with(model="test-model", mcp_bridge=mock_bridge)
