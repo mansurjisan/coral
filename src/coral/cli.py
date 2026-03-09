@@ -82,12 +82,18 @@ def chat(
                     continue
 
                 console.print("[dim]Thinking...[/]")
-                response = await agent.chat(user_input)
-                console.print(f"\n[bold cyan]CORAL:[/] {response}\n")
+                try:
+                    response = await agent.chat(user_input)
+                    console.print(f"\n[bold cyan]CORAL:[/] {response}\n")
+                except Exception as e:
+                    console.print(f"\n[red]Error:[/] {e}\n")
         except KeyboardInterrupt:
             console.print("\n[dim]Goodbye.[/]")
         finally:
-            await bridge.close()
+            try:
+                await bridge.close()
+            except Exception:
+                pass
 
     asyncio.run(run())
 

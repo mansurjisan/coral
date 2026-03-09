@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -165,5 +166,5 @@ class MCPBridge:
         for stack in self._exit_stacks:
             try:
                 await stack.aclose()
-            except Exception:
+            except (Exception, asyncio.CancelledError):
                 pass
