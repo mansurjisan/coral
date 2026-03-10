@@ -37,6 +37,12 @@ class TestKeywordClassify:
         ("Show me my recent jobs", ["WORKFLOW"]),
         ("What tasks are aborted in the stofs suite?", ["WORKFLOW"]),
         ("Read the log for job 12345", ["WORKFLOW"]),
+
+        # UFS experiment queries -> WORKFLOW
+        ("Set up a SCHISM experiment", ["WORKFLOW"]),
+        ("Submit experiment to Slurm", ["WORKFLOW"]),
+        ("Create experiment for UFS-Coastal", ["WORKFLOW"]),
+        ("Check the run status of my experiment", ["WORKFLOW"]),
     ])
     def test_single_category(self, query, expected):
         result = _keyword_classify(query)
@@ -48,6 +54,7 @@ class TestKeywordClassify:
         ("Plot the water levels from this NetCDF file", ["DATA", "CODE"]),
         ("Compare STOFS forecast against observations and plot it", ["DATA", "CODE"]),
         ("My Slurm job failed, explain the error from the docs", ["WORKFLOW", "CODE"]),
+        ("Set up a UFS experiment and plot the outputs", ["WORKFLOW", "CODE"]),
     ])
     def test_multi_category(self, query, expected_contains):
         result = _keyword_classify(query)

@@ -67,6 +67,10 @@
     "viz": {
       "command": "python",
       "args": ["-m", "coral.servers.viz_server"]
+    },
+    "ufs_runner": {
+      "command": "python",
+      "args": ["-m", "ufs_runner_mcp"]
     }
   }
 }

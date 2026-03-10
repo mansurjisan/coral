@@ -32,10 +32,11 @@
       ]
     },
     "workflow": {
-      "description": "Approved HPC workflow and job diagnostics tools.",
+      "description": "Approved HPC workflow, job diagnostics, and experiment management tools.",
       "servers": [
         "slurm",
-        "ecflow"
+        "ecflow",
+        "ufs_runner"
       ]
     }
   },
@@ -298,6 +299,27 @@
         "suite_status",
         "task_read",
         "failure_diagnosis"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "ufs_runner": {
+      "trust_class": "workflow-exec",
+      "risk": "job-submit",
+      "allowed_operations": [
+        "create_experiment",
+        "validate_experiment",
+        "submit_experiment",
+        "get_run_status",
+        "cancel_run",
+        "collect_outputs",
+        "list_templates"
       ],
       "environments": [
         "local",
