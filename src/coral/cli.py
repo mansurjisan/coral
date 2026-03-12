@@ -77,7 +77,7 @@ def chat(
         try:
             while True:
                 try:
-                    user_input = session.prompt(HTML("<b>You: </b>"))
+                    user_input = await session.prompt_async(HTML("<b>You: </b>"))
                 except EOFError:
                     break
 
