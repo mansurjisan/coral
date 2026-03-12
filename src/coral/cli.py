@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 
 import typer
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.rule import Rule
@@ -71,10 +73,11 @@ def chat(
 
         console.print("[dim]Type 'exit' or 'quit' to leave. Ctrl+C to interrupt.[/]\n")
 
+        session: PromptSession[str] = PromptSession()
         try:
             while True:
                 try:
-                    user_input = console.input("[bold]You:[/] ")
+                    user_input = session.prompt(HTML("<b>You: </b>"))
                 except EOFError:
                     break
 
