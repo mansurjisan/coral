@@ -7,6 +7,7 @@ import asyncio
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.rule import Rule
 
 from coral.config import get_all_model_assignments, get_model, set_cli_model
 
@@ -85,8 +86,11 @@ def chat(
                 console.print("[dim]Thinking...[/]")
                 try:
                     response = await agent.chat(user_input)
-                    console.print(f"\n[bold cyan]CORAL:[/]")
+                    console.print()
+                    console.print(Rule(style="cyan"))
+                    console.print(f"[bold cyan]CORAL:[/]")
                     console.print(Markdown(response))
+                    console.print(Rule(style="dim"))
                     console.print()
                 except Exception as e:
                     console.print(f"\n[red]Error:[/] {e}\n")
