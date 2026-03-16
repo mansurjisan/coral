@@ -384,23 +384,12 @@ def chat(
                 console.print("[dim]Thinking...[/]")
 
                 try:
-                    # Stream response token by token
+                    response = await agent.chat(stripped)
+                    chat_log.append({"role": "assistant", "content": response})
                     console.print()
                     console.print(Rule(style="cyan"))
                     console.print("[bold cyan]CORAL:[/]")
-
-                    full_response = ""
-                    if hasattr(agent, "chat_stream"):
-                        # Stream tokens directly to terminal
-                        async for token in agent.chat_stream(stripped):
-                            print(token, end="", flush=True)
-                            full_response += token
-                        print()  # Final newline
-                    else:
-                        full_response = await agent.chat(stripped)
-                        console.print(Markdown(full_response))
-
-                    chat_log.append({"role": "assistant", "content": full_response})
+                    console.print(Markdown(response))
                     console.print(Rule(style="dim"))
                     console.print()
                 except Exception as e:
