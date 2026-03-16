@@ -8,52 +8,14 @@ import typer
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.spinner import Spinner
+from rich.status import Status
 from rich.text import Text
 
 from coral.config import get_all_model_assignments, get_model, set_cli_model
-
-# Coral animation frames (swaying polyp)
-_CORAL_FRAMES = [
-    "[bold cyan]"
-    "    🪸\n"
-    "   ╱▒▒╲\n"
-    "  ╱▒▒▒▒╲\n"
-    " ╱▒▒▒▒▒▒╲\n"
-    "  ╲▒▒▒▒╱\n"
-    "    ┃┃\n"
-    "  ──┘└──[/]",
-
-    "[bold cyan]"
-    "     🪸\n"
-    "    ╱▒▒╲\n"
-    "   ╱▒▒▒▒╲\n"
-    "  ╱▒▒▒▒▒▒╲\n"
-    "   ╲▒▒▒▒╱\n"
-    "     ┃┃\n"
-    "   ──┘└──[/]",
-
-    "[bold cyan]"
-    "      🪸\n"
-    "     ╱▒▒╲\n"
-    "    ╱▒▒▒▒╲\n"
-    "   ╱▒▒▒▒▒▒╲\n"
-    "    ╲▒▒▒▒╱\n"
-    "      ┃┃\n"
-    "    ──┘└──[/]",
-
-    "[bold cyan]"
-    "     🪸\n"
-    "    ╱▒▒╲\n"
-    "   ╱▒▒▒▒╲\n"
-    "  ╱▒▒▒▒▒▒╲\n"
-    "   ╲▒▒▒▒╱\n"
-    "     ┃┃\n"
-    "   ──┘└──[/]",
-]
 
 app = typer.Typer(
     name="coral",
@@ -80,24 +42,8 @@ def chat(
     async def run():
         bridge = MCPBridge(config)
 
-        # Animate coral while connecting
-        connect_done = False
-
-        async def animate_coral():
-            frame_idx = 0
-            with Live(console=console, refresh_per_second=4, transient=True) as live:
-                while not connect_done:
-                    frame = _CORAL_FRAMES[frame_idx % len(_CORAL_FRAMES)]
-                    live.update(Text.from_markup(
-                        f"{frame}\n[dim]  Connecting to MCP servers...[/]"
-                    ))
-                    frame_idx += 1
-                    await asyncio.sleep(0.25)
-
-        anim_task = asyncio.create_task(animate_coral())
-        await bridge.connect_all()
-        connect_done = True
-        await anim_task
+        with Status("🪸 [cyan]Connecting to MCP servers...[/]", console=console, spinner="dots"):
+            await bridge.connect_all()
         tool_count = len(bridge.tools)
 
         if mode == "single":
