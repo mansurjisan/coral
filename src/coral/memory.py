@@ -4,14 +4,36 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Default memory location
-_DEFAULT_MEMORY_DIR = Path.home() / ".coral"
+# Default memory location — prefer scratch on HPC systems where home has tight quotas
 _MEMORY_FILE = "memory.json"
+
+
+def _default_memory_dir() -> Path:
+    """Find the best directory for memory storage."""
+    # Explicit override
+    env_dir = os.environ.get("CORAL_MEMORY_DIR")
+    if env_dir:
+        return Path(env_dir)
+
+    # On HPC: use scratch to avoid home quota issues
+    user = os.environ.get("USER", "")
+    scratch_candidates = [
+        Path(f"/scratch5/purged/{user}/.coral"),
+        Path(f"/scratch/{user}/.coral"),
+        Path(f"/work/noaa/{user}/.coral"),
+    ]
+    for candidate in scratch_candidates:
+        if candidate.parent.exists():
+            return candidate
+
+    # Fallback to home
+    return Path.home() / ".coral"
 
 
 class CoralMemory:
@@ -22,7 +44,7 @@ class CoralMemory:
     """
 
     def __init__(self, memory_dir: str | Path | None = None):
-        self.memory_dir = Path(memory_dir) if memory_dir else _DEFAULT_MEMORY_DIR
+        self.memory_dir = Path(memory_dir) if memory_dir else _default_memory_dir()
         self.memory_file = self.memory_dir / _MEMORY_FILE
         self._data: dict = self._load()
 
