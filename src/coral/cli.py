@@ -200,14 +200,75 @@ def _save_conversation(
 # Tool call display callback
 # ---------------------------------------------------------------------------
 
-def _make_tool_callback(console: Console):
-    """Create a tool-call callback that displays calls in the terminal."""
+def _make_tool_callback(console: Console, memory=None):
+    """Create a tool-call callback that displays calls and auto-learns."""
     def on_tool_call(name, args, result):
         args_short = str(args)
         if len(args_short) > 80:
             args_short = args_short[:80] + "..."
         console.print(f"  [yellow]⚡ {name}[/]({args_short})")
+
+        # Auto-learn from tool results
+        if memory is None:
+            return
+        result_str = str(result)
+        try:
+            _auto_learn_from_tool(memory, name, args, result_str)
+        except Exception:
+            pass  # Never crash on auto-learn
+
     return on_tool_call
+
+
+def _auto_learn_from_tool(memory, tool_name: str, args: dict, result: str) -> None:
+    """Extract useful facts from tool results and save to memory."""
+    import re
+
+    if tool_name == "hpc_account_info" and "Account" in result:
+        # Extract account names from the table
+        accounts = set()
+        for line in result.split("\n"):
+            if "|" in line and not line.startswith("|--"):
+                cols = [c.strip() for c in line.split("|") if c.strip()]
+                if cols and cols[0] not in ("Account", ""):
+                    accounts.add(cols[0])
+        if accounts:
+            memory.auto_learn("slurm_accounts", ", ".join(sorted(accounts)))
+
+    elif tool_name == "hpc_disk_quota" and "/scratch" in result:
+        # Remember which scratch filesystems the user has
+        scratches = re.findall(r"(/scratch\d+)", result)
+        if scratches:
+            memory.auto_learn("scratch_filesystems", ", ".join(sorted(set(scratches))))
+
+    elif tool_name == "hpc_user_groups" and "gid=" in result:
+        # Extract primary group
+        match = re.search(r"gid=\d+\((\w+)\)", result)
+        if match:
+            memory.auto_learn("primary_group", match.group(1))
+
+    elif tool_name == "hpc_fairshare" and "FairShare" in result:
+        # Remember FairShare factor
+        lines = result.split("\n")
+        for line in lines:
+            parts = line.split()
+            user = os.environ.get("USER", "")
+            if user and user[:8] in line and len(parts) >= 7:
+                try:
+                    factor = float(parts[-1])
+                    memory.auto_learn("fairshare_factor", str(factor))
+                except (ValueError, IndexError):
+                    pass
+
+    elif tool_name == "hpc_system_info" and "PARTITION" in result:
+        # Remember available partitions
+        partitions = set()
+        for line in result.split("\n"):
+            parts = line.split()
+            if parts and not parts[0].startswith("PARTITION") and not parts[0].startswith("─"):
+                partitions.add(parts[0].rstrip("*"))
+        if partitions:
+            memory.auto_learn("partitions", ", ".join(sorted(partitions)))
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +301,8 @@ def chat(
             await bridge.connect_all()
         tool_count = len(bridge.tools)
 
-        # Tool call display callback for multi-agent mode
-        tool_callback = _make_tool_callback(console)
+        # Tool call display callback with auto-learning
+        tool_callback = _make_tool_callback(console, memory=memory)
 
         if mode == "single":
             from coral.agent import CoralAgent
