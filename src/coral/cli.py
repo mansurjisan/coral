@@ -10,7 +10,14 @@ from pathlib import Path
 
 import typer
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
+
+_SLASH_COMMANDS = [
+    "/help", "/clear", "/reset", "/mode", "/save",
+    "/memory", "/remember", "/forget", "/tools",
+]
+_slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -358,7 +365,10 @@ def chat(
         ))
         console.print()
 
-        session: PromptSession[str] = PromptSession()
+        session: PromptSession[str] = PromptSession(
+            completer=_slash_completer,
+            complete_while_typing=True,
+        )
         try:
             while True:
                 try:
