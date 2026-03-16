@@ -58,6 +58,31 @@ def _truncate_result(result_str: str) -> str:
     return result_str[:4000] + "\n\n... [truncated] ...\n\n" + result_str[-3000:]
 
 
+def _extract_stats(response) -> dict:
+    """Extract token and timing stats from an Ollama response."""
+    stats = {}
+    try:
+        eval_count = getattr(response, "eval_count", None)
+        eval_duration = getattr(response, "eval_duration", None)
+        total_duration = getattr(response, "total_duration", None)
+        prompt_eval_count = getattr(response, "prompt_eval_count", None)
+
+        if isinstance(eval_count, (int, float)) and eval_count > 0:
+            stats["tokens"] = int(eval_count)
+        if isinstance(prompt_eval_count, (int, float)) and prompt_eval_count > 0:
+            stats["prompt_tokens"] = int(prompt_eval_count)
+        if (isinstance(eval_duration, (int, float)) and eval_duration > 0
+                and isinstance(eval_count, (int, float)) and eval_count > 0):
+            secs = eval_duration / 1e9
+            if secs > 0:
+                stats["tokens_per_sec"] = round(eval_count / secs, 1)
+        if isinstance(total_duration, (int, float)) and total_duration > 0:
+            stats["total_secs"] = round(total_duration / 1e9, 1)
+    except Exception:
+        pass  # Never crash on stats extraction
+    return stats
+
+
 class BaseAgent:
     """An agent with a specific system prompt and subset of tools."""
 
@@ -77,6 +102,7 @@ class BaseAgent:
         self.tool_filter = tool_filter  # List of server names this agent can use
         self.on_tool_call = on_tool_call
         self.history: list[dict] = []
+        self.last_stats: dict = {}
 
     @property
     def tools(self) -> list[dict]:
@@ -145,6 +171,10 @@ class BaseAgent:
 
             assistant_content = response.message.content or ""
             self.history.append({"role": "assistant", "content": assistant_content})
+
+            # Store last response stats for callers that want them
+            self.last_stats = _extract_stats(response)
+
             return assistant_content
 
     async def chat_stream(self, user_message: str) -> AsyncIterator[str]:

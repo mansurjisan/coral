@@ -16,6 +16,7 @@ from prompt_toolkit.formatted_text import HTML
 _SLASH_COMMANDS = [
     "/help", "/clear", "/reset", "/mode", "/save",
     "/memory", "/remember", "/forget", "/tools",
+    "/status", "/report",
 ]
 _slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
@@ -90,6 +91,8 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/remember[/]     Save a memory (e.g. /remember account = coastal-act)
   [cyan]/forget[/]       Remove a memory (e.g. /forget account)
   [cyan]/tools[/]        Show tool count per section
+  [cyan]/status[/]       Quick dashboard: jobs, quota, Ollama health
+  [cyan]/report[/]       Generate HPC status report as markdown
   [cyan]/help[/]         Show this help
 """
 
@@ -175,7 +178,107 @@ async def _handle_slash_command(
             console.print(f"  Tools: {len(agent.tools)}")
         return True
 
+    if command == "/status":
+        await _show_status_dashboard(agent, console)
+        return True
+
+    if command == "/report":
+        await _generate_report(agent, chat_log, console)
+        return True
+
     return False
+
+
+async def _show_status_dashboard(agent, console: Console) -> None:
+    """Quick dashboard: running jobs, Ollama health, key stats."""
+    import httpx
+
+    sections: list[str] = []
+
+    # Ollama health
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{ollama_host}/api/version")
+            version = resp.json().get("version", "unknown")
+        sections.append(f"  [green]✓[/] Ollama [dim]{ollama_host}[/] — v{version}")
+    except Exception:
+        sections.append(f"  [red]✗[/] Ollama [dim]{ollama_host}[/] — unreachable")
+
+    # Running jobs (via agent if available)
+    if hasattr(agent, "agents") and "WORKFLOW" in agent.agents:
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["squeue", "-u", os.environ.get("USER", ""), "-h",
+                 "-o", "%i %j %T %M"],
+                capture_output=True, text=True, timeout=10,
+            )
+            jobs = result.stdout.strip().split("\n") if result.stdout.strip() else []
+            running = [j for j in jobs if "RUNNING" in j]
+            pending = [j for j in jobs if "PENDING" in j]
+            sections.append(f"  [green]✓[/] Slurm — {len(running)} running, {len(pending)} pending")
+            for job in running[:5]:
+                sections.append(f"    [dim]{job}[/]")
+        except Exception:
+            sections.append("  [yellow]?[/] Slurm — not available")
+    else:
+        sections.append("  [dim]-[/] Slurm — not in current mode")
+
+    # Disk usage summary
+    user = os.environ.get("USER", "")
+    scratch5 = f"/scratch5/purged/{user}"
+    if os.path.isdir(scratch5):
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["du", "-sh", scratch5],
+                capture_output=True, text=True, timeout=30,
+            )
+            size = result.stdout.strip().split()[0] if result.stdout.strip() else "?"
+            sections.append(f"  [green]✓[/] Scratch5 — {size} used")
+        except Exception:
+            sections.append("  [yellow]?[/] Scratch5 — could not check")
+
+    console.print(Panel(
+        "\n".join(sections),
+        title="[bold cyan]Status[/]",
+        border_style="cyan",
+        padding=(0, 1),
+    ))
+
+
+async def _generate_report(agent, chat_log: list[dict], console: Console) -> None:
+    """Generate an HPC status report by querying tools."""
+    if not hasattr(agent, "chat"):
+        console.print("[dim]Report requires an active agent.[/]")
+        return
+
+    console.print("[dim]Generating HPC status report...[/]")
+    report_query = (
+        "Generate a brief HPC status report. Include: "
+        "1) My disk quota summary, "
+        "2) My recent jobs from the last 3 days, "
+        "3) My Slurm account info, "
+        "4) Any running experiments. "
+        "Format as a clean markdown report."
+    )
+    try:
+        response = await agent.chat(report_query)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"coral_report_{ts}.md"
+        Path(filename).write_text(
+            f"# CORAL HPC Status Report — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            f"{response}\n"
+        )
+        console.print()
+        console.print(Rule(style="cyan"))
+        console.print("[bold cyan]CORAL Report:[/]")
+        console.print(Markdown(response))
+        console.print(Rule(style="dim"))
+        console.print(f"\n[green]Report saved to {filename}[/]\n")
+    except Exception as e:
+        console.print(f"[red]Report generation failed:[/] {e}")
 
 
 def _save_conversation(
@@ -206,6 +309,22 @@ def _save_conversation(
 # ---------------------------------------------------------------------------
 # Tool call display callback
 # ---------------------------------------------------------------------------
+
+def _get_agent_stats(agent) -> dict:
+    """Extract token stats from the agent's last response."""
+    # Multi-agent: check sub-agents for stats
+    if hasattr(agent, "agents"):
+        combined: dict = {}
+        for ag in agent.agents.values():
+            stats = getattr(ag, "last_stats", {})
+            if stats.get("tokens"):
+                combined["tokens"] = combined.get("tokens", 0) + stats["tokens"]
+            if stats.get("tokens_per_sec"):
+                combined["tokens_per_sec"] = stats["tokens_per_sec"]  # Use last agent's speed
+        return combined
+    # Single agent
+    return getattr(agent, "last_stats", {})
+
 
 def _make_tool_callback(console: Console, memory=None):
     """Create a tool-call callback that displays calls and auto-learns."""
@@ -391,16 +510,37 @@ def chat(
                         continue
 
                 chat_log.append({"role": "user", "content": stripped})
-                console.print("[dim]Thinking...[/]")
+
+                import time as _time
+                t0 = _time.monotonic()
 
                 try:
-                    response = await agent.chat(stripped)
+                    # Run with thinking spinner
+                    with Status(
+                        "🪸 [cyan]Thinking...[/]",
+                        console=console,
+                        spinner="dots",
+                    ):
+                        response = await agent.chat(stripped)
+                    elapsed = _time.monotonic() - t0
+
                     chat_log.append({"role": "assistant", "content": response})
                     console.print()
                     console.print(Rule(style="cyan"))
                     console.print("[bold cyan]CORAL:[/]")
                     console.print(Markdown(response))
-                    console.print(Rule(style="dim"))
+
+                    # Token/timing stats
+                    stats_parts = [f"{elapsed:.1f}s"]
+                    stats = _get_agent_stats(agent)
+                    if stats.get("tokens"):
+                        stats_parts.append(f"{stats['tokens']} tokens")
+                    if stats.get("tokens_per_sec"):
+                        stats_parts.append(f"{stats['tokens_per_sec']} tok/s")
+                    console.print(Rule(
+                        title=f"[dim]{' · '.join(stats_parts)}[/]",
+                        style="dim",
+                    ))
                     console.print()
                 except Exception as e:
                     console.print(f"\n[red]Error:[/] {e}\n")
