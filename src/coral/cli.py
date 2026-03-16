@@ -9,9 +9,20 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.rule import Rule
+from rich.text import Text
 
 from coral.config import get_all_model_assignments, get_model, set_cli_model
+
+CORAL_BANNER = r"""
+   ██████╗ ██████╗ ██████╗  █████╗ ██╗
+  ██╔════╝██╔═══██╗██╔══██╗██╔══██╗██║
+  ██║     ██║   ██║██████╔╝███████║██║
+  ██║     ██║   ██║██╔══██╗██╔══██║██║
+  ╚██████╗╚██████╔╝██║  ██║██║  ██║███████╗
+   ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
+"""
 
 app = typer.Typer(
     name="coral",
@@ -37,12 +48,14 @@ def chat(
 
     async def run():
         bridge = MCPBridge(config)
-        console.print(f"[bold cyan]CORAL[/] — model: [green]{resolved_model}[/]")
-        console.print("[bold cyan]Connecting to MCP servers...[/]")
+
+        # Show banner
+        banner = Text(CORAL_BANNER, style="bold cyan")
+        console.print(banner, highlight=False)
+
+        console.print("[dim]Connecting to MCP servers...[/]")
         await bridge.connect_all()
-        tool_names = [t["function"]["name"] for t in bridge.tools]
-        console.print(f"[green]Connected. {len(bridge.tools)} tools available.[/]")
-        console.print(f"[dim]Tools: {', '.join(tool_names[:10])}{'...' if len(tool_names) > 10 else ''}[/]")
+        tool_count = len(bridge.tools)
 
         if mode == "single":
             from coral.agent import CoralAgent
@@ -58,19 +71,30 @@ def chat(
                 console.print(f"  [dim]{result_short}[/]")
 
             agent = CoralAgent(model=resolved_model, mcp_bridge=bridge, on_tool_call=on_tool_call)
-            console.print("[dim]Mode: single agent (legacy)[/]\n")
+            mode_label = "single agent"
         else:
             from coral.agents.orchestrator import create_orchestrator
 
             agent = create_orchestrator(model=resolved_model, mcp_bridge=bridge)
-            models = get_all_model_assignments()
-            unique_models = set(models.values())
-            if len(unique_models) > 1:
-                for stage, m in models.items():
-                    if m != resolved_model:
-                        console.print(f"  [dim]{stage}: {m}[/]")
-            console.print("[dim]Mode: multi-agent (data + code + workflow)[/]\n")
+            mode_label = "multi-agent (data + code + workflow)"
 
+        # Status panel
+        import os
+        user = os.environ.get("USER", "unknown")
+        host = os.environ.get("HOSTNAME", os.environ.get("HOST", "local"))
+        status = Text.assemble(
+            ("  🪸 ", ""),
+            ("Model  ", "dim"), (resolved_model, "green"),
+            ("  │  ", "dim"),
+            ("Tools  ", "dim"), (str(tool_count), "green"),
+            ("  │  ", "dim"),
+            ("Mode  ", "dim"), (mode_label, "green"),
+            ("\n  🖥️  ", ""),
+            ("User   ", "dim"), (user, "cyan"),
+            ("  │  ", "dim"),
+            ("Host   ", "dim"), (host, "cyan"),
+        )
+        console.print(Panel(status, border_style="cyan", padding=(0, 1)))
         console.print("[dim]Type 'exit' or 'quit' to leave. Ctrl+C to interrupt.[/]\n")
 
         session: PromptSession[str] = PromptSession()
