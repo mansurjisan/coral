@@ -43,6 +43,15 @@ class TestKeywordClassify:
         ("Submit experiment to Slurm", ["WORKFLOW"]),
         ("Create experiment for UFS-Coastal", ["WORKFLOW"]),
         ("Check the run status of my experiment", ["WORKFLOW"]),
+
+        # HPC system queries -> WORKFLOW
+        ("How much scratch space am I using?", ["WORKFLOW"]),
+        ("Show my disk quota", ["WORKFLOW"]),
+        ("What's my FairShare status?", ["WORKFLOW"]),
+        ("What modules loaded in my environment?", ["WORKFLOW"]),
+        ("What groups am I in? Show my group membership", ["WORKFLOW"]),
+        ("Show my allocation usage", ["WORKFLOW"]),
+        ("What partitions are available?", ["WORKFLOW"]),
     ])
     def test_single_category(self, query, expected):
         result = _keyword_classify(query)

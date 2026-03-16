@@ -16,6 +16,8 @@ You have access to:
 - ecFlow: Check suite status, find aborted tasks, read task output
 - UFS Runner: Create experiments from templates, validate configs, submit to Slurm, \
 monitor status, cancel runs, collect outputs
+- HPC System: Check disk quotas, storage usage, allocation/core-hours, FairShare, \
+Slurm account info, loaded modules, available modules, partitions, group membership
 
 RULES:
 - When diagnosing job failures, always check BOTH the exit code and the log file.

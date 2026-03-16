@@ -71,6 +71,10 @@
     "ufs_runner": {
       "command": "python",
       "args": ["-m", "ufs_runner_mcp"]
+    },
+    "hpc_system": {
+      "command": "python",
+      "args": ["-m", "hpc_system_mcp"]
     }
   }
 }

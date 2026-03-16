@@ -27,13 +27,19 @@ forecasts, satellite data, or querying NetCDF model output files
 - CODE: Questions about model source code (SCHISM, ADCIRC, UFS-Coastal, Fortran, C), \
 documentation, namelists, parameter meanings, or requests to generate/run Python code and plots
 - WORKFLOW: Questions about Slurm jobs, ecFlow suites, job failures, log files, \
-HPC system status, or setting up/submitting/monitoring UFS-Coastal experiments
+HPC system status, disk quotas, allocations, FairShare, modules, storage usage, \
+group membership, or setting up/submitting/monitoring UFS-Coastal experiments
 
 Examples:
 - "What is the water level at The Battery?" -> DATA
 - "What does schism_init do?" -> CODE
 - "Why did my Slurm job fail?" -> WORKFLOW
 - "Set up a SCHISM coastal experiment and submit it" -> WORKFLOW
+- "How much scratch space am I using?" -> WORKFLOW
+- "What's my FairShare status?" -> WORKFLOW
+- "What modules do I have loaded?" -> WORKFLOW
+- "Show my disk quota" -> WORKFLOW
+- "What groups am I in?" -> WORKFLOW
 - "My STOFS run failed, check the log and explain the error from the docs" -> WORKFLOW,CODE
 - "Plot the water levels from this NetCDF file" -> DATA,CODE
 - "Compare STOFS forecast against CO-OPS observations and plot the difference" -> DATA,CODE
@@ -64,6 +70,12 @@ _WORKFLOW_KEYWORDS = [
     "experiment", "set up experiment", "create experiment", "submit experiment",
     "run experiment", "ufs", "ufs-coastal", "model run", "validate experiment",
     "cancel run", "run status", "collect outputs",
+    "disk usage", "disk space", "storage", "fairshare", "fair share",
+    "allocation", "core hours", "core-hours", "account info", "my account",
+    "my groups", "group membership", "groups am i",
+    "module list", "module avail", "modules loaded", "loaded modules",
+    "partition", "partitions", "node info",
+    "how much space", "disk quota",
 ]
 _AMBIGUOUS_MODEL_TERMS = ["stofs", "schism", "adcirc", "forecast", "run"]
 
