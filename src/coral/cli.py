@@ -17,6 +17,14 @@ from rich.text import Text
 
 from coral.config import get_all_model_assignments, get_model, set_cli_model
 
+CORAL_BANNER = r"""[bold cyan]
+   ██████╗ ██████╗ ██████╗  █████╗ ██╗
+  ██╔════╝██╔═══██╗██╔══██╗██╔══██╗██║
+  ██║     ██║   ██║██████╔╝███████║██║
+  ██║     ██║   ██║██╔══██╗██╔══██║██║
+  ╚██████╗╚██████╔╝██║  ██║██║  ██║███████╗
+   ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝[/]"""
+
 app = typer.Typer(
     name="coral",
     help="CORAL - Coastal Ocean Research AI Layer",
@@ -42,6 +50,7 @@ def chat(
     async def run():
         bridge = MCPBridge(config)
 
+        console.print(CORAL_BANNER)
         with Status("🪸 [cyan]Connecting to MCP servers...[/]", console=console, spinner="dots"):
             await bridge.connect_all()
         tool_count = len(bridge.tools)
