@@ -16,7 +16,7 @@ from prompt_toolkit.formatted_text import HTML
 _SLASH_COMMANDS = [
     "/help", "/clear", "/reset", "/mode", "/save",
     "/memory", "/remember", "/forget", "/tools",
-    "/status", "/report",
+    "/status", "/report", "/watch",
 ]
 _slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
@@ -93,6 +93,7 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/tools[/]        Show tool count per section
   [cyan]/status[/]       Quick dashboard: jobs, quota, Ollama health
   [cyan]/report[/]       Generate HPC status report as markdown
+  [cyan]/watch[/]        Watch a job (e.g. /watch 9848988)
   [cyan]/help[/]         Show this help
 """
 
@@ -186,6 +187,14 @@ async def _handle_slash_command(
         await _generate_report(agent, chat_log, console)
         return True
 
+    if command == "/watch":
+        job_id = arg.strip()
+        if not job_id or not job_id.isdigit():
+            console.print("[dim]Usage: /watch <job_id>  (e.g. /watch 9848988)[/]")
+            return True
+        _start_job_watcher(job_id, console)
+        return True
+
     return False
 
 
@@ -246,6 +255,49 @@ async def _show_status_dashboard(agent, console: Console) -> None:
         border_style="cyan",
         padding=(0, 1),
     ))
+
+
+def _start_job_watcher(job_id: str, console: Console) -> None:
+    """Start a background thread that polls sacct and notifies when job finishes."""
+    import re
+    import subprocess
+    import threading
+
+    def poll():
+        console.print(f"[dim]Watching job {job_id}... (will notify when done)[/]")
+        poll_interval = 30  # seconds
+        max_polls = 480  # 4 hours at 30s intervals
+
+        for _ in range(max_polls):
+            import time
+            time.sleep(poll_interval)
+            try:
+                result = subprocess.run(
+                    ["sacct", "-j", job_id, "-n", "-X",
+                     "--format=State", "--parsable2"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                state = result.stdout.strip().split("\n")[0].strip() if result.stdout.strip() else ""
+
+                if state and state not in ("RUNNING", "PENDING", "REQUEUED", "SUSPENDED", ""):
+                    # Job finished
+                    console.print(f"\n[bold yellow]🔔 Job {job_id} finished: {state}[/]")
+                    # Get more details
+                    detail = subprocess.run(
+                        ["sacct", "-j", job_id, "-n", "-X",
+                         "--format=JobName%30,State,ExitCode,Elapsed,MaxRSS"],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    if detail.stdout.strip():
+                        console.print(f"[dim]  {detail.stdout.strip()}[/]")
+                    return
+            except Exception:
+                continue
+
+        console.print(f"[dim]Stopped watching job {job_id} (timeout after 4 hours)[/]")
+
+    thread = threading.Thread(target=poll, daemon=True)
+    thread.start()
 
 
 async def _generate_report(agent, chat_log: list[dict], console: Console) -> None:

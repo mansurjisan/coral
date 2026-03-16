@@ -20,9 +20,20 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import warnings
+warnings.filterwarnings('ignore')
 """
 
-_SCRIPT_TIMEOUT = 120
+_SCRIPT_TIMEOUT = int(os.environ.get("CORAL_SCRIPT_TIMEOUT", "120"))
+
+
+def _plot_dir() -> str:
+    """Return the directory for saving plots — prefer scratch over /tmp."""
+    user = os.environ.get("USER", "")
+    scratch = f"/scratch5/purged/{user}/CORAL"
+    if os.path.isdir(scratch):
+        return scratch
+    return tempfile.gettempdir()
 
 def _sandbox_candidates() -> list[str]:
     """Return candidate sandbox image paths in priority order."""
@@ -104,6 +115,23 @@ def execute_python(code: str, description: str = "") -> str:
         code: Python code to execute.
         description: Brief description of what the code does.
     """
+    plot_dir = _plot_dir()
+    plot_path = os.path.join(plot_dir, "coral_plot.png")
+
+    # Clean up previous plot before running new code
+    if os.path.exists(plot_path):
+        try:
+            os.unlink(plot_path)
+        except OSError:
+            pass
+
+    # Also clean /tmp/coral_plot.png if using scratch for plots
+    if plot_dir != tempfile.gettempdir() and os.path.exists("/tmp/coral_plot.png"):
+        try:
+            os.unlink("/tmp/coral_plot.png")
+        except OSError:
+            pass
+
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()
     ) as f:
@@ -122,6 +150,8 @@ def execute_python(code: str, description: str = "") -> str:
             timeout=_SCRIPT_TIMEOUT,
             cwd=tempfile.gettempdir(),
         )
+
+        # Sandbox fallback: retry on host if Apptainer had an environment issue
         if (
             using_sandbox
             and result.returncode != 0
@@ -139,30 +169,46 @@ def execute_python(code: str, description: str = "") -> str:
 
         output = ""
         if result.stdout:
-            output += result.stdout[:3000]
+            stdout_text = result.stdout[:3000]
+            if len(result.stdout) > 3000:
+                stdout_text += "\n... (output truncated)"
+            output += stdout_text
+
         if result.stderr:
-            # Filter out common matplotlib/numpy warnings
+            # Filter out common warnings that clutter output
             stderr_lines = [
                 line for line in result.stderr.split("\n")
-                if line.strip() and "UserWarning" not in line and "FutureWarning" not in line
+                if line.strip()
+                and "UserWarning" not in line
+                and "FutureWarning" not in line
+                and "DeprecationWarning" not in line
+                and "RuntimeWarning" not in line
             ]
             if stderr_lines:
-                output += "\nSTDERR:\n" + "\n".join(stderr_lines[:50])
+                output += "\nSTDERR:\n" + "\n".join(stderr_lines[:30])
 
         if result.returncode != 0:
-            output = f"Script failed (exit code {result.returncode}):\n{output}"
+            # Classify the error for better user feedback
+            error_type = _classify_error(result.stderr)
+            output = f"Script failed ({error_type}, exit code {result.returncode}):\n{output}"
         else:
-            plot_path = "/tmp/coral_plot.png"
-            if os.path.exists(plot_path):
-                size_kb = os.path.getsize(plot_path) // 1024
-                output += f"\n[Plot saved to {plot_path} ({size_kb} KB)]"
+            # Check both /tmp and scratch for plot output
+            found_plot = None
+            for candidate in [plot_path, "/tmp/coral_plot.png"]:
+                if os.path.exists(candidate):
+                    found_plot = candidate
+                    break
+            if found_plot:
+                size_kb = os.path.getsize(found_plot) // 1024
+                output += f"\n[Plot saved to {found_plot} ({size_kb} KB)]"
 
         final_output = output.strip() if output.strip() else "Script completed successfully (no output)."
         return with_tool_audit_payload(final_output, sandbox_used=using_sandbox)
 
     except subprocess.TimeoutExpired:
         return with_tool_audit_payload(
-            f"Script timed out after {_SCRIPT_TIMEOUT} seconds.",
+            f"Script timed out after {_SCRIPT_TIMEOUT} seconds. "
+            f"Consider simplifying the computation or using a smaller dataset.",
             sandbox_used=False,
         )
     finally:
@@ -170,6 +216,24 @@ def execute_python(code: str, description: str = "") -> str:
             os.unlink(script_path)
         except OSError:
             pass
+
+
+def _classify_error(stderr: str) -> str:
+    """Classify a script error for user-friendly feedback."""
+    lowered = stderr.lower()
+    if "modulenotfounderror" in lowered or "no module named" in lowered:
+        return "missing library"
+    if "syntaxerror" in lowered:
+        return "syntax error"
+    if "memoryerror" in lowered or "killed" in lowered:
+        return "out of memory"
+    if "connectionerror" in lowered or "urlopen" in lowered:
+        return "network error"
+    if "filenotfounderror" in lowered:
+        return "file not found"
+    if "permissionerror" in lowered:
+        return "permission denied"
+    return "runtime error"
 
 
 if __name__ == "__main__":
