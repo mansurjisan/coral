@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 
 import typer
 from prompt_toolkit import PromptSession
@@ -11,7 +15,6 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
-from rich.spinner import Spinner
 from rich.status import Status
 from rich.text import Text
 
@@ -33,6 +36,184 @@ app = typer.Typer(
 console = Console()
 
 
+# ---------------------------------------------------------------------------
+# Auto Ollama detection
+# ---------------------------------------------------------------------------
+
+def _auto_detect_ollama() -> None:
+    """Read coral_host.env to set OLLAMA_HOST if not already set."""
+    if os.environ.get("OLLAMA_HOST"):
+        return  # User already set it
+
+    # Check common locations for coral_host.env
+    user = os.environ.get("USER", "")
+    candidates = [
+        Path(f"/scratch5/purged/{user}/coral_host.env"),
+        Path.home() / "coral_host.env",
+        Path("coral_host.env"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            try:
+                for line in candidate.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("OLLAMA_NODE="):
+                        node = line.split("=", 1)[1].strip()
+                        os.environ["OLLAMA_HOST"] = f"http://{node}:11434"
+                        console.print(
+                            f"[dim]Auto-detected Ollama at {node}:11434 "
+                            f"(from {candidate})[/]"
+                        )
+                        return
+            except OSError:
+                continue
+
+
+# ---------------------------------------------------------------------------
+# Slash commands
+# ---------------------------------------------------------------------------
+
+SLASH_COMMANDS_HELP = """\
+[bold]Available commands:[/]
+  [cyan]/clear[/]        Clear conversation history
+  [cyan]/reset[/]        Reset all agents and history
+  [cyan]/mode[/]         Show current agent mode
+  [cyan]/save[/]         Save conversation to markdown file
+  [cyan]/memory[/]       Show saved memories
+  [cyan]/remember[/]     Save a memory (e.g. /remember account = coastal-act)
+  [cyan]/forget[/]       Remove a memory (e.g. /forget account)
+  [cyan]/tools[/]        Show tool count per section
+  [cyan]/help[/]         Show this help
+"""
+
+
+async def _handle_slash_command(
+    cmd: str,
+    agent,
+    memory,
+    chat_log: list[dict],
+    console: Console,
+) -> bool:
+    """Handle a slash command. Returns True if handled."""
+    parts = cmd.strip().split(None, 1)
+    command = parts[0].lower()
+    arg = parts[1] if len(parts) > 1 else ""
+
+    if command == "/help":
+        console.print(SLASH_COMMANDS_HELP)
+        return True
+
+    if command == "/clear":
+        if hasattr(agent, "reset"):
+            agent.reset()
+        elif hasattr(agent, "clear_history"):
+            agent.clear_history()
+        chat_log.clear()
+        console.print("[dim]History cleared.[/]")
+        return True
+
+    if command == "/reset":
+        if hasattr(agent, "reset"):
+            agent.reset()
+        elif hasattr(agent, "clear_history"):
+            agent.clear_history()
+        chat_log.clear()
+        console.print("[dim]All agents reset.[/]")
+        return True
+
+    if command == "/mode":
+        mode_name = "multi-agent" if hasattr(agent, "agents") else "single-agent"
+        console.print(f"[dim]Mode: {mode_name}[/]")
+        return True
+
+    if command == "/save":
+        _save_conversation(chat_log, arg, console)
+        return True
+
+    if command == "/memory":
+        entries = memory.list_all()
+        if not entries:
+            console.print("[dim]No memories saved yet.[/]")
+        else:
+            console.print("[bold]Saved memories:[/]")
+            for key, value in entries.items():
+                console.print(f"  [cyan]{key}[/] = {value}")
+        return True
+
+    if command == "/remember":
+        if "=" not in arg:
+            console.print("[dim]Usage: /remember key = value[/]")
+            return True
+        key, _, value = arg.partition("=")
+        memory.set(key.strip(), value.strip())
+        console.print(f"[dim]Remembered: {key.strip()} = {value.strip()}[/]")
+        return True
+
+    if command == "/forget":
+        key = arg.strip()
+        if not key:
+            console.print("[dim]Usage: /forget key[/]")
+            return True
+        if memory.delete(key):
+            console.print(f"[dim]Forgot: {key}[/]")
+        else:
+            console.print(f"[dim]No memory found for: {key}[/]")
+        return True
+
+    if command == "/tools":
+        if hasattr(agent, "agents"):
+            for name, ag in agent.agents.items():
+                console.print(f"  [cyan]{name:10s}[/] {len(ag.tools)} tools")
+        else:
+            console.print(f"  Tools: {len(agent.tools)}")
+        return True
+
+    return False
+
+
+def _save_conversation(
+    chat_log: list[dict],
+    filename: str,
+    console: Console,
+) -> None:
+    """Save conversation to a markdown file."""
+    if not chat_log:
+        console.print("[dim]No conversation to save.[/]")
+        return
+
+    if not filename:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"coral_chat_{ts}.md"
+
+    lines = [f"# CORAL Chat — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
+    for entry in chat_log:
+        if entry["role"] == "user":
+            lines.append(f"## You\n\n{entry['content']}\n")
+        elif entry["role"] == "assistant":
+            lines.append(f"## CORAL\n\n{entry['content']}\n")
+
+    Path(filename).write_text("\n".join(lines))
+    console.print(f"[green]Saved to {filename}[/]")
+
+
+# ---------------------------------------------------------------------------
+# Tool call display callback
+# ---------------------------------------------------------------------------
+
+def _make_tool_callback(console: Console):
+    """Create a tool-call callback that displays calls in the terminal."""
+    def on_tool_call(name, args, result):
+        args_short = str(args)
+        if len(args_short) > 80:
+            args_short = args_short[:80] + "..."
+        console.print(f"  [yellow]⚡ {name}[/]({args_short})")
+    return on_tool_call
+
+
+# ---------------------------------------------------------------------------
+# Chat command
+# ---------------------------------------------------------------------------
+
 @app.command()
 def chat(
     model: str = typer.Option("", help="Ollama model name (default: CORAL_MODEL or qwen3:32b)"),
@@ -41,43 +222,55 @@ def chat(
 ):
     """Interactive chat with CORAL."""
     from coral.mcp_bridge import MCPBridge
+    from coral.memory import CoralMemory
 
-    # Register CLI model into the central resolver. All get_model() calls
-    # now see it as tier 3 in the fallback chain.
     set_cli_model(model)
     resolved_model = get_model()
 
     async def run():
         bridge = MCPBridge(config)
+        memory = CoralMemory()
+        chat_log: list[dict] = []
+
+        # Auto-detect Ollama from coral_host.env
+        _auto_detect_ollama()
 
         console.print(CORAL_BANNER)
         with Status("🪸 [cyan]Connecting to MCP servers...[/]", console=console, spinner="dots"):
             await bridge.connect_all()
         tool_count = len(bridge.tools)
 
+        # Tool call display callback for multi-agent mode
+        tool_callback = _make_tool_callback(console)
+
         if mode == "single":
             from coral.agent import CoralAgent
 
-            def on_tool_call(name, args, result):
-                args_short = str(args)
-                if len(args_short) > 80:
-                    args_short = args_short[:80] + "..."
-                result_short = str(result)
-                if len(result_short) > 200:
-                    result_short = result_short[:200] + "..."
-                console.print(f"  [yellow]Tool:[/] {name}({args_short})")
-                console.print(f"  [dim]{result_short}[/]")
-
-            agent = CoralAgent(model=resolved_model, mcp_bridge=bridge, on_tool_call=on_tool_call)
+            agent = CoralAgent(
+                model=resolved_model,
+                mcp_bridge=bridge,
+                on_tool_call=tool_callback,
+            )
             mode_label = "single agent"
         else:
             from coral.agents.orchestrator import create_orchestrator
 
             agent = create_orchestrator(model=resolved_model, mcp_bridge=bridge)
+            # Attach tool call display to each sub-agent
+            for ag in agent.agents.values():
+                ag.on_tool_call = tool_callback
             mode_label = "multi-agent (data + code + workflow)"
 
+        # Inject memory context into agent prompts
+        mem_context = memory.to_prompt_context()
+        if mem_context:
+            if hasattr(agent, "agents"):
+                for ag in agent.agents.values():
+                    ag.system_prompt = ag.system_prompt + "\n\n" + mem_context
+            elif hasattr(agent, "system_prompt"):
+                agent.system_prompt = agent.system_prompt + "\n\n" + mem_context
+
         # Status panel
-        import os
         user = os.environ.get("USER", "unknown")
         host = os.environ.get("HOSTNAME", os.environ.get("HOST", "local"))
         status = Text.assemble(
@@ -92,11 +285,14 @@ def chat(
             ("  │  ", "dim"),
             ("Host   ", "dim"), (host, "cyan"),
         )
+        if memory.list_all():
+            status.append("\n  🧠 ", style="")
+            status.append(f"{len(memory.list_all())} memories loaded", style="dim")
         console.print(Panel(
             status,
             border_style="cyan",
             title="[bold cyan]CORAL v0.1.0[/]",
-            subtitle="[dim]Coastal Ocean Research AI Layer · Type exit to leave[/]",
+            subtitle="[dim]Coastal Ocean Research AI Layer · /help for commands[/]",
             padding=(0, 1),
         ))
         console.print()
@@ -109,18 +305,41 @@ def chat(
                 except EOFError:
                     break
 
-                if user_input.strip().lower() in ("exit", "quit"):
+                stripped = user_input.strip()
+                if stripped.lower() in ("exit", "quit"):
                     break
-                if not user_input.strip():
+                if not stripped:
                     continue
 
+                # Slash commands
+                if stripped.startswith("/"):
+                    handled = await _handle_slash_command(
+                        stripped, agent, memory, chat_log, console,
+                    )
+                    if handled:
+                        continue
+
+                chat_log.append({"role": "user", "content": stripped})
                 console.print("[dim]Thinking...[/]")
+
                 try:
-                    response = await agent.chat(user_input)
+                    # Stream response token by token
                     console.print()
                     console.print(Rule(style="cyan"))
-                    console.print(f"[bold cyan]CORAL:[/]")
-                    console.print(Markdown(response))
+                    console.print("[bold cyan]CORAL:[/]")
+
+                    full_response = ""
+                    if hasattr(agent, "chat_stream"):
+                        # Stream tokens directly to terminal
+                        async for token in agent.chat_stream(stripped):
+                            print(token, end="", flush=True)
+                            full_response += token
+                        print()  # Final newline
+                    else:
+                        full_response = await agent.chat(stripped)
+                        console.print(Markdown(full_response))
+
+                    chat_log.append({"role": "assistant", "content": full_response})
                     console.print(Rule(style="dim"))
                     console.print()
                 except Exception as e:
@@ -165,12 +384,12 @@ def index(
     db_path: str = typer.Option("~/.coral/vectordb", help="Vector DB path"),
 ):
     """Index documents into CORAL's RAG knowledge base."""
-    from pathlib import Path
+    from pathlib import Path as P
 
     from coral.rag.indexer import CoralIndexer
 
     indexer = CoralIndexer(db_path=db_path)
-    p = Path(path)
+    p = P(path)
 
     if p.is_file():
         count = indexer.index_file(str(p))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 
 import ollama
 
@@ -281,6 +282,81 @@ class Orchestrator:
             ],
         )
         return response.message.content
+
+    async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
+        """Route query and stream the response token by token.
+
+        Single-agent queries stream the agent's final response.
+        Multi-agent queries stream the synthesis step.
+        """
+        with request_context(mode="multi"):
+            record_audit_event(
+                "query_start",
+                message_chars=len(user_message),
+                router_model=self.router_model,
+                synthesis_model=self.synthesis_model,
+            )
+            self.history.append({"role": "user", "content": user_message})
+            _prune_history(self.history)
+
+            categories = await self.classify(user_message)
+            set_request_route(categories)
+
+            if len(categories) == 1:
+                agent = self.agents[categories[0]]
+                full_content = ""
+                async for token in agent.chat_stream(user_message):
+                    full_content += token
+                    yield token
+                self.history.append({"role": "assistant", "content": full_content})
+            else:
+                # Multi-agent: run agents normally, then stream synthesis
+                responses = []
+                accumulated_context = user_message
+
+                for cat in categories:
+                    agent = self.agents[cat]
+                    try:
+                        result = await agent.chat(accumulated_context)
+                    except Exception as agent_exc:
+                        logger.error("Agent %s failed: %s", cat, agent_exc)
+                        result = f"[{cat} section unavailable: {agent_exc}]"
+                    responses.append(f"[{agent.name.upper()} AGENT]\n{result}")
+
+                    accumulated_context = (
+                        f"Original question: {user_message}\n\n"
+                        f"Previous findings:\n{result}\n\n"
+                        f"Based on the above, continue addressing the original question."
+                    )
+                    agent.clear_history()
+
+                # Stream the synthesis
+                combined = "\n\n".join(responses)
+                synthesis_prompt = (
+                    f"The user asked: {user_message}\n\n"
+                    f"Multiple specialized agents provided these findings:\n\n"
+                    f"{combined}\n\n"
+                    f"Synthesize these into a single, coherent response for the user. "
+                    f"Don't mention 'agents' -- just provide the unified answer."
+                )
+
+                full_content = ""
+                stream = ollama.chat(
+                    model=self.synthesis_model,
+                    messages=[
+                        {"role": "system", "content": SYNTHESIS_PROMPT},
+                        {"role": "user", "content": synthesis_prompt},
+                    ],
+                    stream=True,
+                )
+                for chunk in stream:
+                    token = chunk.message.content or ""
+                    full_content += token
+                    yield token
+
+                self.history.append({"role": "assistant", "content": full_content})
+
+            record_audit_event("query_end", success=True)
 
     def reset(self):
         """Clear all agent histories."""

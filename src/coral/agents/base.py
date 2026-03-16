@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Callable
 
 import ollama
@@ -145,6 +146,88 @@ class BaseAgent:
             assistant_content = response.message.content or ""
             self.history.append({"role": "assistant", "content": assistant_content})
             return assistant_content
+
+    async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
+        """Run the agent loop, streaming the final response token by token.
+
+        Tool-calling iterations run non-streamed (need full response to detect
+        tool calls). Only the final text response is streamed.
+        """
+        with section_context(self.name):
+            self.history.append({"role": "user", "content": user_message})
+            _prune_history(self.history)
+
+            messages = [{"role": "system", "content": self.system_prompt}] + self.history
+            tools = self.tools
+
+            # Non-streamed tool loop
+            response = ollama.chat(
+                model=self.model,
+                messages=messages,
+                tools=tools if tools else None,
+            )
+
+            iteration = 0
+            while response.message.tool_calls and iteration < MAX_TOOL_ITERATIONS:
+                self.history.append({
+                    "role": "assistant",
+                    "content": response.message.content or "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        }
+                        for tc in response.message.tool_calls
+                    ],
+                })
+
+                for tool_call in response.message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_args = tool_call.function.arguments
+                    logger.info("[%s] Calling tool: %s(%s)", self.name, tool_name, tool_args)
+
+                    try:
+                        result = await self.mcp_bridge.call_tool(tool_name, tool_args)
+                    except Exception as e:
+                        result = f"Error calling {tool_name}: {e}"
+                        logger.error(result)
+
+                    if self.on_tool_call:
+                        self.on_tool_call(tool_name, tool_args, result)
+
+                    result_str = _truncate_result(str(result))
+                    self.history.append({"role": "tool", "content": result_str})
+
+                response = ollama.chat(
+                    model=self.model,
+                    messages=[{"role": "system", "content": self.system_prompt}] + self.history,
+                    tools=tools if tools else None,
+                )
+                iteration += 1
+
+            # If model finished with no more tool calls, check if we should stream
+            # the final response. If the last response already has content, we need
+            # to re-request with stream=True. Otherwise just yield what we have.
+            if response.message.content and not response.message.tool_calls:
+                # Re-request with streaming for the final response
+                full_content = ""
+                stream = ollama.chat(
+                    model=self.model,
+                    messages=[{"role": "system", "content": self.system_prompt}] + self.history,
+                    stream=True,
+                )
+                for chunk in stream:
+                    token = chunk.message.content or ""
+                    full_content += token
+                    yield token
+
+                self.history.append({"role": "assistant", "content": full_content})
+            else:
+                content = response.message.content or ""
+                self.history.append({"role": "assistant", "content": content})
+                yield content
 
     def clear_history(self):
         """Clear conversation history."""
