@@ -75,6 +75,10 @@
     "hpc_system": {
       "command": "python",
       "args": ["-m", "hpc_system_mcp"]
+    },
+    "nos_workflow": {
+      "command": "python",
+      "args": ["-m", "nos_workflow_mcp"]
     }
   }
 }

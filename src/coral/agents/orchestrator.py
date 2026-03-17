@@ -77,6 +77,11 @@ _WORKFLOW_KEYWORDS = [
     "module list", "module avail", "modules loaded", "loaded modules",
     "partition", "partitions", "node info",
     "how much space", "disk quota",
+    "secofs config", "stofs config", "nosofs", "ofs config", "ofs system",
+    "ensemble config", "forcing config", "grid config",
+    "compare configs", "diagnose failure", "fatal error", "fatal.error",
+    "ecflow suite", "workflow config", "nos workflow",
+    "list ofs", "list systems",
 ]
 _AMBIGUOUS_MODEL_TERMS = ["stofs", "schism", "adcirc", "forecast", "run"]
 

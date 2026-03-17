@@ -35,7 +35,7 @@ class TestPolicyManifest:
             "adcirc", "goes", "schism", "usgs", "winds", "ww3", "netcdf",
         ]
         assert get_section_servers("code") == ["rag", "viz"]
-        assert get_section_servers("workflow") == ["slurm", "ecflow", "ufs_runner", "hpc_system"]
+        assert get_section_servers("workflow") == ["slurm", "ecflow", "ufs_runner", "hpc_system", "nos_workflow"]
 
     def test_unknown_section_raises(self):
         with pytest.raises(ValueError, match="Unknown section"):
