@@ -71,6 +71,13 @@ def _is_sandbox_runtime_failure(stderr: str) -> bool:
         "no event received",
         "mount source",
         "hook function failure",
+        "operation not permitted",
+        "getsockopt",
+        "socket communication error",
+        "permission denied",
+        "failed to create",
+        "container creation failed",
+        "overlay",
     ]
     return any(marker in lowered for marker in markers)
 

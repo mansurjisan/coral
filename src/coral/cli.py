@@ -218,7 +218,7 @@ async def _handle_slash_command(
         return True
 
     if command == "/branch":
-        _branch_conversation(arg, chat_log, console)
+        _branch_conversation(arg, chat_log, agent, console)
         return True
 
     if command == "/branches":
@@ -277,46 +277,53 @@ def _set_alert(arg: str, agent, console: Console) -> None:
         f"{station_id} {operator} {threshold}m"
     )
 
-    # Background check thread
+    # Background check using httpx (consistent with CORAL's HTTP stack)
     def check_alert():
-        import subprocess
         import time as _t
+
+        import httpx
 
         while alert["active"]:
             _t.sleep(300)  # Check every 5 minutes
             try:
-                # Use CO-OPS API to check latest water level
-                import urllib.request
                 url = (
-                    f"https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+                    "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
                     f"?station={station_id}&product=water_level&datum=MLLW"
-                    f"&units=metric&time_zone=gmt&date=latest&format=json"
-                    f"&application=coral"
+                    "&units=metric&time_zone=gmt&date=latest&format=json"
+                    "&application=coral_alert"
                 )
-                with urllib.request.urlopen(url, timeout=15) as resp:
-                    import json as _json
-                    data = _json.loads(resp.read())
-                    if "data" in data and data["data"]:
-                        value = float(data["data"][0]["v"])
-                        triggered = False
-                        if operator == ">" and value > threshold:
-                            triggered = True
-                        elif operator == "<" and value < threshold:
-                            triggered = True
-                        elif operator == ">=" and value >= threshold:
-                            triggered = True
-                        elif operator == "<=" and value <= threshold:
-                            triggered = True
+                with httpx.Client(timeout=15) as client:
+                    resp = client.get(url)
+                    data = resp.json()
 
-                        if triggered:
-                            console.print(
-                                f"\n[bold red]🚨 ALERT: Station {station_id} "
-                                f"water level = {value:.3f}m "
-                                f"({operator} {threshold}m)[/]"
-                            )
-                            alert["active"] = False
-                            return
-            except Exception:
+                if "data" in data and data["data"]:
+                    value = float(data["data"][0]["v"])
+                    triggered = False
+                    if operator == ">" and value > threshold:
+                        triggered = True
+                    elif operator == "<" and value < threshold:
+                        triggered = True
+                    elif operator == ">=" and value >= threshold:
+                        triggered = True
+                    elif operator == "<=" and value <= threshold:
+                        triggered = True
+
+                    if triggered:
+                        console.print(
+                            f"\n[bold red]🚨 ALERT: Station {station_id} "
+                            f"water level = {value:.3f}m "
+                            f"({operator} {threshold}m)[/]"
+                        )
+                        alert["active"] = False
+                        # Record in audit
+                        _audit_log.append({
+                            "tool": "alert_triggered",
+                            "args": f"station={station_id} {operator} {threshold}",
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                        })
+                        return
+            except Exception as e:
+                logger.debug("Alert check failed for %s: %s", station_id, e)
                 continue
 
     thread = threading.Thread(target=check_alert, daemon=True)
@@ -330,13 +337,20 @@ def _set_alert(arg: str, agent, console: Console) -> None:
 _branches: dict[str, list[dict]] = {}
 
 
-def _branch_conversation(name: str, chat_log: list[dict], console: Console) -> None:
+def _branch_conversation(name: str, chat_log: list[dict], agent, console: Console) -> None:
     """Save current conversation as a named branch and start fresh."""
     if not name:
         name = f"branch_{len(_branches) + 1}"
 
     _branches[name] = list(chat_log)  # Copy current log
     chat_log.clear()
+
+    # Reset underlying agent/orchestrator histories
+    if hasattr(agent, "reset"):
+        agent.reset()
+    elif hasattr(agent, "clear_history"):
+        agent.clear_history()
+
     console.print(f"[green]Saved branch '{name}' ({len(_branches[name])} messages). Starting fresh.[/]")
 
 
@@ -365,9 +379,12 @@ def _show_audit(console: Console) -> None:
 
     lines = ["[bold]Tool Call History:[/]\n"]
     for entry in _audit_log[-20:]:  # Last 20 calls
+        time_str = entry.get("time", "?")
+        result_len = entry.get("result_len", 0)
+        size_label = f"{result_len} chars" if result_len else ""
         lines.append(
-            f"  [cyan]{entry['tool']:30s}[/] "
-            f"[dim]{entry.get('elapsed', '?')}[/]"
+            f"  [dim]{time_str}[/] [cyan]{entry['tool']:30s}[/] "
+            f"[dim]{size_label}[/]"
         )
 
     # Summary stats
@@ -401,10 +418,11 @@ async def _show_status_dashboard(agent, console: Console) -> None:
     except Exception:
         sections.append(f"  [red]✗[/] Ollama [dim]{ollama_host}[/] — unreachable")
 
-    # Running jobs (via agent if available)
-    if hasattr(agent, "agents") and "WORKFLOW" in agent.agents:
+    # Running jobs — try Slurm first, fall back to PBS
+    import shutil
+    import subprocess
+    if shutil.which("squeue"):
         try:
-            import subprocess
             result = subprocess.run(
                 ["squeue", "-u", os.environ.get("USER", ""), "-h",
                  "-o", "%i %j %T %M"],
@@ -417,9 +435,21 @@ async def _show_status_dashboard(agent, console: Console) -> None:
             for job in running[:5]:
                 sections.append(f"    [dim]{job}[/]")
         except Exception:
-            sections.append("  [yellow]?[/] Slurm — not available")
+            sections.append("  [yellow]?[/] Slurm — error querying")
+    elif shutil.which("qstat"):
+        try:
+            result = subprocess.run(
+                ["qstat", "-u", os.environ.get("USER", "")],
+                capture_output=True, text=True, timeout=10,
+            )
+            job_lines = [l for l in result.stdout.strip().split("\n") if l.strip() and not l.startswith("---") and "Job ID" not in l]
+            sections.append(f"  [green]✓[/] PBS — {len(job_lines)} jobs")
+            for job in job_lines[:5]:
+                sections.append(f"    [dim]{job.strip()[:80]}[/]")
+        except Exception:
+            sections.append("  [yellow]?[/] PBS — error querying")
     else:
-        sections.append("  [dim]-[/] Slurm — not in current mode")
+        sections.append("  [dim]-[/] No scheduler (Slurm/PBS) found")
 
     # Disk usage summary
     user = os.environ.get("USER", "")
@@ -445,38 +475,55 @@ async def _show_status_dashboard(agent, console: Console) -> None:
 
 
 def _start_job_watcher(job_id: str, console: Console) -> None:
-    """Start a background thread that polls sacct and notifies when job finishes."""
-    import re
+    """Start a background thread that polls job status and notifies when done.
+
+    Supports both Slurm (sacct) and PBS (qstat) schedulers.
+    """
+    import shutil
     import subprocess
     import threading
 
+    use_pbs = shutil.which("qstat") and not shutil.which("sacct")
+
+    def _check_slurm() -> str | None:
+        """Check Slurm job state. Returns terminal state or None if still running."""
+        result = subprocess.run(
+            ["sacct", "-j", job_id, "-n", "-X", "--format=State", "--parsable2"],
+            capture_output=True, text=True, timeout=15,
+        )
+        state = result.stdout.strip().split("\n")[0].strip() if result.stdout.strip() else ""
+        if state and state not in ("RUNNING", "PENDING", "REQUEUED", "SUSPENDED", ""):
+            return state
+        return None
+
+    def _check_pbs() -> str | None:
+        """Check PBS job state. Returns terminal state or None if still running."""
+        result = subprocess.run(
+            ["qstat", "-f", job_id],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            # Job gone from PBS = finished
+            return "COMPLETED (no longer in PBS)"
+        for line in result.stdout.split("\n"):
+            if "job_state" in line:
+                state = line.split("=")[-1].strip()
+                if state in ("F", "E", "X"):  # Finished, Exiting, terminated
+                    return f"FINISHED (state={state})"
+        return None
+
     def poll():
-        console.print(f"[dim]Watching job {job_id}... (will notify when done)[/]")
-        poll_interval = 30  # seconds
-        max_polls = 480  # 4 hours at 30s intervals
+        console.print(f"[dim]Watching job {job_id} ({'PBS' if use_pbs else 'Slurm'})... (will notify when done)[/]")
+        poll_interval = 30
+        max_polls = 480
 
         for _ in range(max_polls):
             import time
             time.sleep(poll_interval)
             try:
-                result = subprocess.run(
-                    ["sacct", "-j", job_id, "-n", "-X",
-                     "--format=State", "--parsable2"],
-                    capture_output=True, text=True, timeout=15,
-                )
-                state = result.stdout.strip().split("\n")[0].strip() if result.stdout.strip() else ""
-
-                if state and state not in ("RUNNING", "PENDING", "REQUEUED", "SUSPENDED", ""):
-                    # Job finished
+                state = _check_pbs() if use_pbs else _check_slurm()
+                if state:
                     console.print(f"\n[bold yellow]🔔 Job {job_id} finished: {state}[/]")
-                    # Get more details
-                    detail = subprocess.run(
-                        ["sacct", "-j", job_id, "-n", "-X",
-                         "--format=JobName%30,State,ExitCode,Elapsed,MaxRSS"],
-                        capture_output=True, text=True, timeout=15,
-                    )
-                    if detail.stdout.strip():
-                        console.print(f"[dim]  {detail.stdout.strip()}[/]")
                     return
             except Exception:
                 continue
@@ -669,6 +716,7 @@ def _make_tool_callback(console: Console, memory=None):
             "tool": name,
             "args": args_short,
             "time": datetime.now().strftime("%H:%M:%S"),
+            "result_len": len(str(result)),
         })
 
         # Auto-learn from tool results
@@ -758,7 +806,10 @@ def chat(
 
         bridge = MCPBridge(config)
         memory = CoralMemory()
-        chat_log: list[dict] = []
+        # Restore previous session if available
+        chat_log: list[dict] = _load_session()
+        if chat_log:
+            console.print(f"[dim]Restored {len(chat_log)} messages from previous session.[/]")
 
         # Auto-detect Ollama from coral_host.env
         _auto_detect_ollama()
