@@ -56,7 +56,9 @@ class TestKeywordClassify:
     def test_single_category(self, query, expected):
         result = _keyword_classify(query)
         assert result is not None
-        assert result[0] == expected[0]
+        categories, confidence = result
+        assert categories[0] == expected[0]
+        assert 0 < confidence <= 1.0
 
     @pytest.mark.parametrize("query,expected_contains", [
         # Multi-category queries
@@ -68,8 +70,9 @@ class TestKeywordClassify:
     def test_multi_category(self, query, expected_contains):
         result = _keyword_classify(query)
         assert result is not None
+        categories, confidence = result
         for cat in expected_contains:
-            assert cat in result
+            assert cat in categories
 
     @pytest.mark.parametrize("query,expected", [
         ("Compare STOFS forecast against observations and plot it", ["DATA", "CODE"]),
@@ -77,7 +80,9 @@ class TestKeywordClassify:
     ])
     def test_multi_category_order(self, query, expected):
         result = _keyword_classify(query)
-        assert result == expected
+        assert result is not None
+        categories, _ = result
+        assert categories == expected
 
     def test_ambiguous_returns_none(self):
         """Unknown queries should return None to trigger LLM fallback."""

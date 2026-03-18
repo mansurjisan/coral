@@ -757,13 +757,18 @@ def chat(
                     console.print("[bold cyan]CORAL:[/]")
                     console.print(Markdown(response))
 
-                    # Token/timing stats
+                    # Token/timing stats + routing confidence
                     stats_parts = [f"{elapsed:.1f}s"]
                     stats = _get_agent_stats(agent)
                     if stats.get("tokens"):
                         stats_parts.append(f"{stats['tokens']} tokens")
                     if stats.get("tokens_per_sec"):
                         stats_parts.append(f"{stats['tokens_per_sec']} tok/s")
+                    # Show routing confidence
+                    if hasattr(agent, "last_route_confidence") and agent.last_route_confidence > 0:
+                        conf = agent.last_route_confidence
+                        conf_str = f"confidence {conf:.0%}"
+                        stats_parts.append(conf_str)
                     console.print(Rule(
                         title=f"[dim]{' · '.join(stats_parts)}[/]",
                         style="dim",

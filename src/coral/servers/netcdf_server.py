@@ -141,5 +141,94 @@ def get_netcdf_timeseries(
     return json.dumps(records[:500])
 
 
+@mcp.tool()
+def netcdf_stats(
+    file_path: str,
+    variable: str,
+    time_start: str = None,
+    time_end: str = None,
+    stat: str = "all",
+) -> str:
+    """Compute statistics for a NetCDF variable over a time range.
+
+    Supports natural-language style queries like "What was the max water level
+    between March 10 and March 15?" by specifying variable, time range, and stat.
+
+    Args:
+        file_path: Path to the NetCDF file.
+        variable: Variable name (e.g. 'zeta', 'temp', 'salt', 'elev').
+        time_start: Start time for the range (e.g. '2026-03-10'). Optional.
+        time_end: End time for the range (e.g. '2026-03-15'). Optional.
+        stat: Statistic to compute: 'min', 'max', 'mean', 'std', 'all'.
+            Default 'all' returns all stats.
+    """
+    ds = xr.open_dataset(file_path)
+    if variable not in ds.data_vars:
+        available = list(ds.data_vars)
+        ds.close()
+        return f"Variable '{variable}' not found. Available: {', '.join(available)}"
+
+    da = ds[variable]
+
+    # Time slicing
+    if "time" in da.dims:
+        if time_start and time_end:
+            da = da.sel(time=slice(time_start, time_end))
+        elif time_start:
+            da = da.sel(time=slice(time_start, None))
+        elif time_end:
+            da = da.sel(time=slice(None, time_end))
+
+    units = da.attrs.get("units", "")
+    values = da.values
+
+    n_times = da.sizes.get("time", 1) if "time" in da.dims else 1
+    results = {
+        "variable": variable,
+        "units": units,
+        "time_steps": n_times,
+    }
+
+    if stat in ("min", "all"):
+        results["min"] = round(float(np.nanmin(values)), 6)
+    if stat in ("max", "all"):
+        results["max"] = round(float(np.nanmax(values)), 6)
+    if stat in ("mean", "all"):
+        results["mean"] = round(float(np.nanmean(values)), 6)
+    if stat in ("std", "all"):
+        results["std"] = round(float(np.nanstd(values)), 6)
+
+    nan_count = int(np.isnan(values).sum()) if np.issubdtype(values.dtype, np.floating) else 0
+    results["nan_count"] = nan_count
+    results["total_values"] = int(values.size)
+
+    # Time range info
+    if "time" in da.dims and n_times > 0:
+        results["time_range"] = {
+            "start": str(da.time.values[0]),
+            "end": str(da.time.values[-1]),
+        }
+
+    ds.close()
+
+    # Format as readable output
+    lines = [f"## {variable} Statistics"]
+    if results.get("time_range"):
+        lines.append(f"**Time range**: {results['time_range']['start']} to {results['time_range']['end']}")
+    lines.append(f"**Time steps**: {results['time_steps']}")
+    if "min" in results:
+        lines.append(f"**Min**: {results['min']} {units}")
+    if "max" in results:
+        lines.append(f"**Max**: {results['max']} {units}")
+    if "mean" in results:
+        lines.append(f"**Mean**: {results['mean']} {units}")
+    if "std" in results:
+        lines.append(f"**Std**: {results['std']} {units}")
+    if nan_count > 0:
+        lines.append(f"**NaN values**: {nan_count} / {results['total_values']}")
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     mcp.run()

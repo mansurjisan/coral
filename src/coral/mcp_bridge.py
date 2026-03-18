@@ -71,6 +71,8 @@ class MCPBridge:
         self.tool_map: dict[str, tuple[ClientSession, str]] = {}  # tool_name -> (session, server_name)
         self.tool_server_map: dict[str, str] = {}  # tool_name -> server_name (for agent filtering)
         self._exit_stacks: list[AsyncExitStack] = []
+        self._cache: dict[str, tuple[float, str]] = {}  # cache_key -> (timestamp, result)
+        self._cache_ttl = 300  # 5 minutes default TTL
 
     async def connect_all(self):
         """Connect to all configured MCP servers and discover tools."""
@@ -161,10 +163,28 @@ class MCPBridge:
 
     _TOOL_TIMEOUT = int(__import__("os").environ.get("CORAL_TOOL_TIMEOUT", "120"))
 
+    # Tools whose results can be cached (read-only, stable data)
+    _CACHEABLE_PREFIXES = ("hpc_", "nos_list", "nos_get_config", "nos_get_domain", "nos_get_ensemble")
+
+    def _cache_key(self, tool_name: str, arguments: dict) -> str | None:
+        """Return a cache key if this tool is cacheable, else None."""
+        if any(tool_name.startswith(p) for p in self._CACHEABLE_PREFIXES):
+            args_str = json.dumps(arguments, sort_keys=True)
+            return f"{tool_name}:{args_str}"
+        return None
+
     async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """Execute a tool call via MCP with timeout and retry."""
+        """Execute a tool call via MCP with timeout, retry, and caching."""
         if tool_name not in self.tool_map:
             raise ValueError(f"Unknown tool: {tool_name}")
+
+        # Check cache for read-only tools
+        cache_key = self._cache_key(tool_name, arguments)
+        if cache_key and cache_key in self._cache:
+            cached_time, cached_result = self._cache[cache_key]
+            if (time.perf_counter() - cached_time) < self._cache_ttl:
+                logger.debug("Cache hit: %s", tool_name)
+                return cached_result
 
         session, server_name = self.tool_map[tool_name]
         started = time.perf_counter()
@@ -191,6 +211,11 @@ class MCPBridge:
             payload, cleaned = split_tool_audit_payload(text)
             sandbox_used = payload.get("sandbox_used")
             success = True
+
+            # Store in cache if cacheable
+            if cache_key:
+                self._cache[cache_key] = (time.perf_counter(), cleaned)
+
             return cleaned
         except asyncio.TimeoutError:
             error = f"Tool '{tool_name}' timed out after {self._TOOL_TIMEOUT}s"

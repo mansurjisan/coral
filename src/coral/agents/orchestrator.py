@@ -114,8 +114,11 @@ def _ordered_categories(
     return []
 
 
-def _keyword_classify(query: str) -> list[str] | None:
-    """Fast intent-based classification. Returns None if ambiguous."""
+def _keyword_classify(query: str) -> tuple[list[str], float] | None:
+    """Fast intent-based classification. Returns (categories, confidence) or None.
+
+    Confidence is based on the number and specificity of keyword matches.
+    """
     query_lower = query.lower().strip()
     if not query_lower:
         return None
@@ -134,7 +137,18 @@ def _keyword_classify(query: str) -> list[str] | None:
         return None
 
     categories = _ordered_categories(has_workflow, has_data, has_code)
-    return categories or None
+    if not categories:
+        return None
+
+    # Compute confidence: more keyword matches = higher confidence
+    total_matches = len(data_matches) + len(code_matches) + len(workflow_matches)
+    # Base confidence from keyword count, capped at 0.95
+    confidence = min(0.95, 0.6 + (total_matches - 1) * 0.1)
+    # Reduce confidence for multi-category routing
+    if len(categories) > 1:
+        confidence *= 0.85
+
+    return categories, round(confidence, 2)
 
 
 SYNTHESIS_PROMPT = """\
@@ -170,6 +184,7 @@ class Orchestrator:
             "WORKFLOW": create_workflow_agent(workflow_model or model, mcp_bridge),
         }
         self.history: list[dict] = []
+        self.last_route_confidence: float = 0.0
 
     # Follow-up phrases that reference prior context
     _FOLLOW_UP_PATTERNS = [
@@ -200,10 +215,12 @@ class Orchestrator:
         For follow-up queries, includes prior context in classification.
         """
         # Try keyword route first
-        result = _keyword_classify(query)
-        if result is not None:
-            logger.info("Keyword-routed query to: %s", result)
-            return result
+        kw_result = _keyword_classify(query)
+        if kw_result is not None:
+            categories, confidence = kw_result
+            self.last_route_confidence = confidence
+            logger.info("Keyword-routed query to: %s (confidence=%.2f)", categories, confidence)
+            return categories
 
         # For follow-ups, include prior context in the classification
         prior_context = self._is_follow_up(query)
@@ -229,8 +246,12 @@ class Orchestrator:
         if not categories:
             logger.warning("Could not classify query, defaulting to DATA: %s", raw)
             categories = ["DATA"]
+            self.last_route_confidence = 0.3
+        else:
+            self.last_route_confidence = 0.7  # LLM classification is less certain
 
-        logger.info("LLM-routed query to: %s (model=%s)", categories, self.router_model)
+        logger.info("LLM-routed query to: %s (confidence=%.2f, model=%s)",
+                     categories, self.last_route_confidence, self.router_model)
         return categories
 
     async def chat(self, user_message: str) -> str:
