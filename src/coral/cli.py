@@ -99,6 +99,7 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/audit[/]        Show tool call history and stats
   [cyan]/techmemo[/]     Auto-generate NOAA tech memo draft
   [cyan]/alert[/]        Set a threshold alert (e.g. /alert 8518750 > 1.5)
+                  /alert list — show all alerts  /alert check — check now
   [cyan]/branch[/]       Save current conversation and start a new branch
   [cyan]/branches[/]     List saved conversation branches
   [cyan]/help[/]         Show this help
@@ -216,7 +217,7 @@ async def _handle_slash_command(
         return True
 
     if command == "/alert":
-        _set_alert(arg, agent, console)
+        await _set_alert_via_mcp(arg, agent, console)
         return True
 
     if command == "/branch":
@@ -234,16 +235,15 @@ async def _handle_slash_command(
 # Alert system
 # ---------------------------------------------------------------------------
 
-_active_alerts: list[dict] = []
+_alert_mcp_bridge = None  # Set during chat() init if alerts server is available
 
 
-def _set_alert(arg: str, agent, console: Console) -> None:
-    """Set a threshold alert for a station or variable.
+async def _set_alert_via_mcp(arg: str, agent, console: Console) -> None:
+    """Create a threshold alert via the MCP alert server.
 
     Usage: /alert <station_id> <operator> <threshold>
     Example: /alert 8518750 > 1.5
     """
-    import re
     import threading
 
     parts = arg.strip().split()
@@ -251,8 +251,17 @@ def _set_alert(arg: str, agent, console: Console) -> None:
         console.print(
             "[dim]Usage: /alert <station_id> <operator> <value>\n"
             "  Example: /alert 8518750 > 1.5\n"
-            "  Operators: > < >= <=[/]"
+            "  Operators: > < >= <=\n"
+            "  Also: /alert list | /alert check[/]"
         )
+        return
+
+    # Sub-commands
+    if parts[0] == "list":
+        await _alert_subcommand(agent, "coral_list_alerts", {}, console)
+        return
+    if parts[0] == "check":
+        await _alert_subcommand(agent, "coral_check_alerts", {}, console)
         return
 
     station_id = parts[0]
@@ -267,68 +276,88 @@ def _set_alert(arg: str, agent, console: Console) -> None:
         console.print(f"[red]Invalid operator: {operator}. Use > < >= <=[/]")
         return
 
-    alert = {
-        "station_id": station_id,
-        "operator": operator,
-        "threshold": threshold,
-        "active": True,
-    }
-    _active_alerts.append(alert)
-    console.print(
-        f"[green]Alert set:[/] Notify when water level at station "
-        f"{station_id} {operator} {threshold}m"
-    )
+    # Create alert via MCP tool
+    bridge = _get_mcp_bridge(agent)
+    if bridge and "coral_create_alert" in bridge.tool_map:
+        try:
+            result = await bridge.call_tool("coral_create_alert", {
+                "station_id": station_id,
+                "operator": operator,
+                "threshold": threshold,
+            })
+            console.print(Markdown(result))
 
-    # Background check using httpx (consistent with CORAL's HTTP stack)
-    def check_alert():
-        import time as _t
+            # Start background MCP-mediated check loop
+            _start_mcp_alert_loop(bridge, console)
+        except Exception as e:
+            console.print(f"[red]Alert creation failed:[/] {e}")
+    else:
+        console.print(
+            "[yellow]Alert MCP server not available.[/]\n"
+            "[dim]Install alert-mcp: pip install -e ocean-mcp/servers/alert-mcp[/]"
+        )
 
-        import httpx
 
-        while alert["active"]:
+async def _alert_subcommand(agent, tool_name: str, args: dict, console: Console) -> None:
+    """Run an alert sub-command via MCP."""
+    bridge = _get_mcp_bridge(agent)
+    if bridge and tool_name in bridge.tool_map:
+        try:
+            result = await bridge.call_tool(tool_name, args)
+            console.print(Markdown(result))
+        except Exception as e:
+            console.print(f"[red]Error:[/] {e}")
+    else:
+        console.print(f"[yellow]Tool '{tool_name}' not available.[/]")
+
+
+def _get_mcp_bridge(agent):
+    """Extract MCP bridge from agent or orchestrator."""
+    if hasattr(agent, "mcp_bridge"):
+        return agent.mcp_bridge
+    if hasattr(agent, "agents"):
+        # Orchestrator — get bridge from any sub-agent
+        for ag in agent.agents.values():
+            if hasattr(ag, "mcp_bridge"):
+                return ag.mcp_bridge
+    return None
+
+
+_alert_loop_started = False
+
+
+def _start_mcp_alert_loop(bridge, console: Console) -> None:
+    """Start a background thread that periodically checks alerts via MCP."""
+    global _alert_loop_started
+    if _alert_loop_started:
+        return  # Only one loop
+    _alert_loop_started = True
+
+    import asyncio
+    import threading
+
+    def poll():
+        loop = asyncio.new_event_loop()
+        while True:
+            import time as _t
             _t.sleep(300)  # Check every 5 minutes
             try:
-                url = (
-                    "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
-                    f"?station={station_id}&product=water_level&datum=MLLW"
-                    "&units=metric&time_zone=gmt&date=latest&format=json"
-                    "&application=coral_alert"
-                )
-                with httpx.Client(timeout=15) as client:
-                    resp = client.get(url)
-                    data = resp.json()
-
-                if "data" in data and data["data"]:
-                    value = float(data["data"][0]["v"])
-                    triggered = False
-                    if operator == ">" and value > threshold:
-                        triggered = True
-                    elif operator == "<" and value < threshold:
-                        triggered = True
-                    elif operator == ">=" and value >= threshold:
-                        triggered = True
-                    elif operator == "<=" and value <= threshold:
-                        triggered = True
-
-                    if triggered:
-                        console.print(
-                            f"\n[bold red]🚨 ALERT: Station {station_id} "
-                            f"water level = {value:.3f}m "
-                            f"({operator} {threshold}m)[/]"
-                        )
-                        alert["active"] = False
-                        # Record in audit
+                if "coral_check_alerts" in bridge.tool_map:
+                    result = loop.run_until_complete(
+                        bridge.call_tool("coral_check_alerts", {})
+                    )
+                    if "TRIGGERED" in result:
+                        console.print(f"\n[bold red]🚨 {result}[/]")
                         _audit_log.append({
-                            "tool": "alert_triggered",
-                            "args": f"station={station_id} {operator} {threshold}",
+                            "tool": "coral_check_alerts",
+                            "args": "background_poll",
                             "time": datetime.now().strftime("%H:%M:%S"),
+                            "result_len": len(result),
                         })
-                        return
             except Exception as e:
-                logger.debug("Alert check failed for %s: %s", station_id, e)
-                continue
+                logger.debug("Alert check cycle failed: %s", e)
 
-    thread = threading.Thread(target=check_alert, daemon=True)
+    thread = threading.Thread(target=poll, daemon=True)
     thread.start()
 
 
