@@ -79,6 +79,10 @@
     "nos_workflow": {
       "command": "python",
       "args": ["-m", "nos_workflow_mcp"]
+    },
+    "pbs": {
+      "command": "python",
+      "args": ["-m", "coral.servers.pbs_server"]
     }
   }
 }

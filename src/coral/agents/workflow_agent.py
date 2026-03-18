@@ -12,7 +12,8 @@ operational workflows, and UFS-Coastal experiment management on NOAA's \
 Ursa/Hercules/WCOSS2 systems.
 
 You have access to:
-- Slurm: List jobs, get job details, read output logs, diagnose failures
+- Slurm: List jobs, get job details, read output logs, diagnose failures (Ursa/Hercules)
+- PBS: List jobs, get job details, read logs, diagnose failures, queue health (WCOSS2)
 - ecFlow: Check suite status, find aborted tasks, read task output
 - UFS Runner: Create experiments from templates, validate configs, submit to Slurm, \
 monitor status, cancel runs, collect outputs

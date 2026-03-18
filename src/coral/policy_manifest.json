@@ -36,6 +36,7 @@
       "servers": [
         "slurm",
         "ecflow",
+        "pbs",
         "ufs_runner",
         "hpc_system",
         "nos_workflow"
@@ -301,6 +302,24 @@
         "suite_status",
         "task_read",
         "failure_diagnosis"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "pbs": {
+      "trust_class": "workflow-diagnostic",
+      "risk": "diagnostic",
+      "allowed_operations": [
+        "job_status",
+        "log_read",
+        "failure_diagnosis",
+        "queue_status"
       ],
       "environments": [
         "local",
