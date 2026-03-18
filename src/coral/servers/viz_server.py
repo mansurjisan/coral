@@ -15,6 +15,8 @@ from coral.audit import with_tool_audit_payload
 mcp = FastMCP("coral-viz")
 
 _SCRIPT_HEADER = """\
+import os
+os.environ.setdefault('MPLCONFIGDIR', os.path.join(os.environ.get('TMPDIR', '/tmp'), '.mpl'))
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -190,6 +192,8 @@ def execute_python(code: str, description: str = "") -> str:
                 and "FutureWarning" not in line
                 and "DeprecationWarning" not in line
                 and "RuntimeWarning" not in line
+                and "MPLCONFIGDIR" not in line
+                and "configdir" not in line.lower()
             ]
             if stderr_lines:
                 output += "\nSTDERR:\n" + "\n".join(stderr_lines[:30])

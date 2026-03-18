@@ -198,9 +198,11 @@ async def _handle_slash_command(
         return True
 
     if command == "/watch":
+        import re as _re
         job_id = arg.strip()
-        if not job_id or not job_id.isdigit():
-            console.print("[dim]Usage: /watch <job_id>  (e.g. /watch 9848988)[/]")
+        # Accept Slurm numeric IDs and PBS IDs like 12345.server
+        if not job_id or not _re.match(r"^[\d]+(\.\w+)*$", job_id):
+            console.print("[dim]Usage: /watch <job_id>  (e.g. /watch 9848988 or /watch 12345.svc)[/]")
             return True
         _start_job_watcher(job_id, console)
         return True
@@ -806,10 +808,7 @@ def chat(
 
         bridge = MCPBridge(config)
         memory = CoralMemory()
-        # Restore previous session if available
         chat_log: list[dict] = _load_session()
-        if chat_log:
-            console.print(f"[dim]Restored {len(chat_log)} messages from previous session.[/]")
 
         # Auto-detect Ollama from coral_host.env
         _auto_detect_ollama()
@@ -861,6 +860,14 @@ def chat(
                     ag.system_prompt = ag.system_prompt + "\n\n" + mem_context
             elif hasattr(agent, "system_prompt"):
                 agent.system_prompt = agent.system_prompt + "\n\n" + mem_context
+
+        # Rehydrate agent history from restored session
+        if chat_log:
+            console.print(f"[dim]Restored {len(chat_log)} messages from previous session.[/]")
+            for entry in chat_log:
+                if entry["role"] in ("user", "assistant"):
+                    if hasattr(agent, "history"):
+                        agent.history.append(dict(entry))
 
         # Status panel
         user = os.environ.get("USER", "unknown")
