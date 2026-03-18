@@ -171,10 +171,33 @@ class Orchestrator:
         }
         self.history: list[dict] = []
 
+    # Follow-up phrases that reference prior context
+    _FOLLOW_UP_PATTERNS = [
+        "now plot", "plot it", "plot that", "plot this", "graph it",
+        "now show", "show it", "compare it", "analyze it",
+        "do the same", "same for", "repeat for", "try again",
+        "what about", "how about",
+    ]
+
+    def _is_follow_up(self, query: str) -> str | None:
+        """Detect follow-up queries that need prior context.
+
+        Returns the last assistant message if this is a follow-up, None otherwise.
+        """
+        query_lower = query.lower().strip()
+        is_follow_up = any(p in query_lower for p in self._FOLLOW_UP_PATTERNS)
+        if is_follow_up and self.history:
+            # Find last assistant response for context
+            for msg in reversed(self.history):
+                if msg["role"] == "assistant":
+                    return msg["content"]
+        return None
+
     async def classify(self, query: str) -> list[str]:
         """Classify user query into agent categories.
 
         Uses fast keyword matching first, falls back to LLM for ambiguous queries.
+        For follow-up queries, includes prior context in classification.
         """
         # Try keyword route first
         result = _keyword_classify(query)
@@ -182,12 +205,18 @@ class Orchestrator:
             logger.info("Keyword-routed query to: %s", result)
             return result
 
+        # For follow-ups, include prior context in the classification
+        prior_context = self._is_follow_up(query)
+        classify_query = query
+        if prior_context:
+            classify_query = f"Previous answer: {prior_context[:500]}\n\nFollow-up: {query}"
+
         # Fall back to LLM classification
         response = ollama.chat(
             model=self.router_model,
             messages=[
                 {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-                {"role": "user", "content": query},
+                {"role": "user", "content": classify_query},
             ],
         )
         raw = response.message.content.strip().upper()

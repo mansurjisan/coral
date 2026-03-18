@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +17,7 @@ from prompt_toolkit.formatted_text import HTML
 _SLASH_COMMANDS = [
     "/help", "/clear", "/reset", "/mode", "/save",
     "/memory", "/remember", "/forget", "/tools",
-    "/status", "/report", "/watch",
+    "/status", "/report", "/watch", "/audit",
 ]
 _slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
@@ -94,6 +95,7 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/status[/]       Quick dashboard: jobs, quota, Ollama health
   [cyan]/report[/]       Generate HPC status report as markdown
   [cyan]/watch[/]        Watch a job (e.g. /watch 9848988)
+  [cyan]/audit[/]        Show tool call history and stats
   [cyan]/help[/]         Show this help
 """
 
@@ -195,7 +197,43 @@ async def _handle_slash_command(
         _start_job_watcher(job_id, console)
         return True
 
+    if command == "/audit":
+        _show_audit(console)
+        return True
+
     return False
+
+
+# Tool call audit log (populated by the tool callback)
+_audit_log: list[dict] = []
+
+
+def _show_audit(console: Console) -> None:
+    """Show tool call history and stats."""
+    if not _audit_log:
+        console.print("[dim]No tool calls recorded yet.[/]")
+        return
+
+    lines = ["[bold]Tool Call History:[/]\n"]
+    for entry in _audit_log[-20:]:  # Last 20 calls
+        lines.append(
+            f"  [cyan]{entry['tool']:30s}[/] "
+            f"[dim]{entry.get('elapsed', '?')}[/]"
+        )
+
+    # Summary stats
+    total = len(_audit_log)
+    tools_used = {}
+    for entry in _audit_log:
+        tools_used[entry["tool"]] = tools_used.get(entry["tool"], 0) + 1
+    top_tools = sorted(tools_used.items(), key=lambda x: -x[1])[:5]
+
+    lines.append(f"\n[bold]Summary:[/] {total} total calls")
+    lines.append("[bold]Most used:[/]")
+    for tool, count in top_tools:
+        lines.append(f"  [cyan]{tool}[/] — {count}x")
+
+    console.print("\n".join(lines))
 
 
 async def _show_status_dashboard(agent, console: Console) -> None:
@@ -358,6 +396,30 @@ def _save_conversation(
     console.print(f"[green]Saved to {filename}[/]")
 
 
+def _session_file() -> Path:
+    """Return the path for the session history file."""
+    from coral.memory import _default_memory_dir
+    return _default_memory_dir() / "last_session.json"
+
+
+def _save_session(chat_log: list[dict]) -> None:
+    """Persist chat history for session restore."""
+    path = _session_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(chat_log, indent=2))
+
+
+def _load_session() -> list[dict]:
+    """Load previous session's chat history."""
+    path = _session_file()
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Tool call display callback
 # ---------------------------------------------------------------------------
@@ -381,10 +443,18 @@ def _get_agent_stats(agent) -> dict:
 def _make_tool_callback(console: Console, memory=None):
     """Create a tool-call callback that displays calls and auto-learns."""
     def on_tool_call(name, args, result):
+        import time as _t
         args_short = str(args)
         if len(args_short) > 80:
             args_short = args_short[:80] + "..."
         console.print(f"  [yellow]⚡ {name}[/]({args_short})")
+
+        # Record in audit log
+        _audit_log.append({
+            "tool": name,
+            "args": args_short,
+            "time": datetime.now().strftime("%H:%M:%S"),
+        })
 
         # Auto-learn from tool results
         if memory is None:
@@ -467,12 +537,29 @@ def chat(
     resolved_model = get_model()
 
     async def run():
+        # Suppress noisy MCP server logs during startup
+        logging.getLogger("mcp").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+
         bridge = MCPBridge(config)
         memory = CoralMemory()
         chat_log: list[dict] = []
 
         # Auto-detect Ollama from coral_host.env
         _auto_detect_ollama()
+
+        # Health check: verify Ollama is reachable before connecting
+        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{ollama_host}/api/tags")
+                resp.raise_for_status()
+        except Exception:
+            console.print(f"[red]Cannot reach Ollama at {ollama_host}[/]")
+            console.print("[dim]Check that Ollama is running and OLLAMA_HOST is set correctly.[/]")
+            console.print("[dim]On Ursa: sbatch slurm/start_ollama.sh, then export OLLAMA_HOST=http://<node>:11434[/]")
+            return
 
         console.print(CORAL_BANNER)
         with Status("🪸 [cyan]Connecting to MCP servers...[/]", console=console, spinner="dots"):
@@ -599,6 +686,12 @@ def chat(
         except KeyboardInterrupt:
             console.print("\n[dim]Goodbye.[/]")
         finally:
+            # Save session for potential restore
+            if chat_log:
+                try:
+                    _save_session(chat_log)
+                except Exception:
+                    pass
             try:
                 await bridge.close()
             except Exception:

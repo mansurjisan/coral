@@ -6,6 +6,8 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Callable
 
+import time as _time
+
 import ollama
 
 from coral.audit import section_context
@@ -15,6 +17,27 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
 MAX_HISTORY_CHARS = 80_000  # ~20K tokens at ~4 chars/token
+MAX_LLM_RETRIES = 1  # Retry once on transient Ollama failures
+
+
+def _ollama_chat_with_retry(*, model, messages, tools=None, max_retries=MAX_LLM_RETRIES):
+    """Call ollama.chat with retry on transient errors."""
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return ollama.chat(model=model, messages=messages, tools=tools)
+        except Exception as e:
+            last_err = e
+            err_str = str(e).lower()
+            # Only retry on connection/timeout errors, not model errors
+            if "connect" in err_str or "timeout" in err_str or "refused" in err_str:
+                if attempt < max_retries:
+                    wait = 2 ** attempt
+                    logger.warning("Ollama error (attempt %d), retrying in %ds: %s", attempt + 1, wait, e)
+                    _time.sleep(wait)
+                    continue
+            raise
+    raise last_err
 
 
 def _estimate_history_chars(history: list[dict]) -> int:
@@ -123,7 +146,7 @@ class BaseAgent:
             messages = [{"role": "system", "content": self.system_prompt}] + self.history
             tools = self.tools
 
-            response = ollama.chat(
+            response = _ollama_chat_with_retry(
                 model=self.model,
                 messages=messages,
                 tools=tools if tools else None,
@@ -162,7 +185,7 @@ class BaseAgent:
                     result_str = _truncate_result(str(result))
                     self.history.append({"role": "tool", "content": result_str})
 
-                response = ollama.chat(
+                response = _ollama_chat_with_retry(
                     model=self.model,
                     messages=[{"role": "system", "content": self.system_prompt}] + self.history,
                     tools=tools if tools else None,
@@ -191,7 +214,7 @@ class BaseAgent:
             tools = self.tools
 
             # Non-streamed tool loop
-            response = ollama.chat(
+            response = _ollama_chat_with_retry(
                 model=self.model,
                 messages=messages,
                 tools=tools if tools else None,
@@ -230,7 +253,7 @@ class BaseAgent:
                     result_str = _truncate_result(str(result))
                     self.history.append({"role": "tool", "content": result_str})
 
-                response = ollama.chat(
+                response = _ollama_chat_with_retry(
                     model=self.model,
                     messages=[{"role": "system", "content": self.system_prompt}] + self.history,
                     tools=tools if tools else None,

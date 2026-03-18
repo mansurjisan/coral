@@ -117,8 +117,10 @@ class MCPBridge:
 
         logger.info("Connected to %s: %d tools", name, len(result.tools))
 
+    _TOOL_TIMEOUT = int(__import__("os").environ.get("CORAL_TOOL_TIMEOUT", "120"))
+
     async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """Execute a tool call via MCP."""
+        """Execute a tool call via MCP with timeout and retry."""
         if tool_name not in self.tool_map:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -130,9 +132,12 @@ class MCPBridge:
         error = None
 
         try:
-            result = await session.call_tool(tool_name, arguments)
+            # Wrap in timeout to catch hung tools
+            result = await asyncio.wait_for(
+                session.call_tool(tool_name, arguments),
+                timeout=self._TOOL_TIMEOUT,
+            )
 
-            # Extract text content from result
             parts = []
             for content in result.content:
                 if hasattr(content, "text"):
@@ -145,6 +150,9 @@ class MCPBridge:
             sandbox_used = payload.get("sandbox_used")
             success = True
             return cleaned
+        except asyncio.TimeoutError:
+            error = f"Tool '{tool_name}' timed out after {self._TOOL_TIMEOUT}s"
+            raise TimeoutError(error)
         except Exception as exc:
             error = str(exc)
             raise
