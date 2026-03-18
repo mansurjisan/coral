@@ -17,13 +17,55 @@ from coral.policy import validate_configured_servers
 logger = logging.getLogger(__name__)
 
 
+def _load_plugins() -> dict:
+    """Scan plugin directories for additional MCP server configs."""
+    import os
+    from pathlib import Path
+
+    plugins: dict = {}
+    plugin_dirs = [
+        Path.home() / ".coral" / "servers",
+        Path(os.environ.get("CORAL_PLUGINS_DIR", "")) if os.environ.get("CORAL_PLUGINS_DIR") else None,
+    ]
+    for plugin_dir in plugin_dirs:
+        if plugin_dir is None or not plugin_dir.is_dir():
+            continue
+        for config_file in plugin_dir.glob("*.json"):
+            try:
+                with open(config_file) as f:
+                    plugin_config = json.load(f)
+                # Each plugin JSON has: {"command": "...", "args": [...]}
+                server_name = config_file.stem
+                plugins[server_name] = plugin_config
+                logger.info("Loaded plugin: %s from %s", server_name, config_file)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("Failed to load plugin %s: %s", config_file, e)
+    return plugins
+
+
 class MCPBridge:
     """Connects to multiple MCP servers and discovers their tools."""
 
     def __init__(self, config_path: str):
         with open(config_path) as f:
             self.config = json.load(f)
-        validate_configured_servers(self.config.get("mcpServers", {}).keys())
+
+        # Load plugins from ~/.coral/servers/*.json
+        self._plugin_names: set[str] = set()
+        plugins = _load_plugins()
+        if plugins:
+            servers = self.config.setdefault("mcpServers", {})
+            for name, cfg in plugins.items():
+                if name not in servers:
+                    servers[name] = cfg
+                    self._plugin_names.add(name)
+
+        # Validate only non-plugin servers against the policy manifest
+        core_servers = [
+            s for s in self.config.get("mcpServers", {}).keys()
+            if s not in self._plugin_names
+        ]
+        validate_configured_servers(core_servers)
         self.sessions: dict[str, ClientSession] = {}
         self.tools: list[dict] = []  # Ollama-format tool definitions
         self.tool_map: dict[str, tuple[ClientSession, str]] = {}  # tool_name -> (session, server_name)

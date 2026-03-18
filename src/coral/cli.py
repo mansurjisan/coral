@@ -17,7 +17,7 @@ from prompt_toolkit.formatted_text import HTML
 _SLASH_COMMANDS = [
     "/help", "/clear", "/reset", "/mode", "/save",
     "/memory", "/remember", "/forget", "/tools",
-    "/status", "/report", "/watch", "/audit",
+    "/status", "/report", "/watch", "/audit", "/techmemo",
 ]
 _slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
@@ -96,7 +96,11 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/report[/]       Generate HPC status report as markdown
   [cyan]/watch[/]        Watch a job (e.g. /watch 9848988)
   [cyan]/audit[/]        Show tool call history and stats
+  [cyan]/techmemo[/]     Auto-generate NOAA tech memo draft
   [cyan]/help[/]         Show this help
+
+  [bold]Query prefixes:[/]
+  [cyan]@model[/]        Use a different model for one query (e.g. @qwen3:8b What is SCHISM?)
 """
 
 
@@ -199,6 +203,10 @@ async def _handle_slash_command(
 
     if command == "/audit":
         _show_audit(console)
+        return True
+
+    if command == "/techmemo":
+        await _generate_techmemo(agent, console)
         return True
 
     return False
@@ -369,6 +377,72 @@ async def _generate_report(agent, chat_log: list[dict], console: Console) -> Non
         console.print(f"\n[green]Report saved to {filename}[/]\n")
     except Exception as e:
         console.print(f"[red]Report generation failed:[/] {e}")
+
+
+async def _generate_techmemo(agent, console: Console) -> None:
+    """Auto-generate a NOAA tech memo draft about CORAL."""
+    console.print("[dim]Generating NOAA Tech Memo draft...[/]")
+
+    # Gather system stats
+    tool_count = 0
+    server_count = 0
+    if hasattr(agent, "agents"):
+        for ag in agent.agents.values():
+            tool_count += len(ag.tools)
+        server_count = len(set(
+            ag.mcp_bridge.tool_server_map.get(t["function"]["name"], "")
+            for ag in agent.agents.values()
+            for t in ag.tools
+        ))
+    elif hasattr(agent, "tools"):
+        tool_count = len(agent.tools)
+
+    memo_prompt = f"""\
+Generate a NOAA Technical Memorandum draft about CORAL (Coastal Ocean Research AI Layer).
+
+Use this system information:
+- Total tools: {tool_count}
+- MCP servers: {server_count}
+- Agent architecture: Multi-agent (DATA, CODE, WORKFLOW) with orchestrator routing
+- Deployment: Self-hosted on NOAA RDHPCS (Ursa HPC) using Ollama + local LLM
+- No cloud LLM dependency
+
+Structure the memo as:
+1. Abstract (1 paragraph)
+2. Introduction — problem statement (tool overload in single-agent HPC assistants)
+3. System Architecture — multi-agent routing, MCP integration, section boundaries
+4. Capabilities — ocean data retrieval (CO-OPS, STOFS, ERDDAP), code analysis (RAG),
+   HPC workflow management (Slurm, ecFlow, UFS experiments), system administration
+5. Operational Workflow Integration — NOS OFS configs, failure diagnostics, ensemble support
+6. Deployment — Ollama on GPU node, CORAL on service node, Apptainer sandbox
+7. Results — cross-domain query examples, tool call routing accuracy
+8. Conclusion and Future Work
+
+Write in formal NOAA technical report style. Include specific numbers and examples.
+Format as clean markdown.
+"""
+
+    try:
+        with Status("🪸 [cyan]Writing tech memo...[/]", console=console, spinner="dots"):
+            response = await agent.chat(memo_prompt)
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"coral_techmemo_{ts}.md"
+        Path(filename).write_text(
+            f"# NOAA Technical Memorandum — CORAL\n"
+            f"# Coastal Ocean Research AI Layer\n"
+            f"# Draft generated {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            f"{response}\n"
+        )
+
+        console.print()
+        console.print(Rule(style="cyan"))
+        console.print("[bold cyan]Tech Memo Draft:[/]")
+        console.print(Markdown(response))
+        console.print(Rule(style="dim"))
+        console.print(f"\n[green]Saved to {filename}[/]\n")
+    except Exception as e:
+        console.print(f"[red]Tech memo generation failed:[/] {e}")
 
 
 def _save_conversation(
@@ -648,6 +722,20 @@ def chat(
                     if handled:
                         continue
 
+                # Per-query model override: @modelname prefix
+                original_models: dict[str, str] = {}
+                if stripped.startswith("@") and " " in stripped:
+                    model_override, stripped = stripped.split(" ", 1)
+                    model_name = model_override[1:]  # Remove @
+                    console.print(f"[dim]Using model: {model_name} for this query[/]")
+                    if hasattr(agent, "agents"):
+                        for ag in agent.agents.values():
+                            original_models[ag.name] = ag.model
+                            ag.model = model_name
+                    elif hasattr(agent, "model"):
+                        original_models["_single"] = agent.model
+                        agent.model = model_name
+
                 chat_log.append({"role": "user", "content": stripped})
 
                 import time as _time
@@ -683,6 +771,15 @@ def chat(
                     console.print()
                 except Exception as e:
                     console.print(f"\n[red]Error:[/] {e}\n")
+                finally:
+                    # Restore original models after per-query override
+                    if original_models:
+                        if hasattr(agent, "agents"):
+                            for ag in agent.agents.values():
+                                if ag.name in original_models:
+                                    ag.model = original_models[ag.name]
+                        elif "_single" in original_models:
+                            agent.model = original_models["_single"]
         except KeyboardInterrupt:
             console.print("\n[dim]Goodbye.[/]")
         finally:
@@ -744,6 +841,57 @@ def index(
         console.print(f"[green]Indexed {p}: {count} total chunks[/]")
     else:
         console.print(f"[red]Path not found: {path}[/]")
+
+
+@app.command(name="index-workflow")
+def index_workflow(
+    workflow_dir: str = typer.Argument(..., help="Path to nos-workflow repo"),
+    db_path: str = typer.Option("", help="Vector DB path (default: auto-detect)"),
+):
+    """Index NOS workflow configs, scripts, and ecFlow definitions for RAG search."""
+    from pathlib import Path as P
+
+    workflow = P(workflow_dir)
+    if not workflow.is_dir():
+        console.print(f"[red]Directory not found: {workflow_dir}[/]")
+        raise typer.Exit(1)
+
+    # Auto-detect DB path
+    if not db_path:
+        db_path = os.environ.get("CORAL_VECTORDB", "~/.coral/vectordb")
+
+    from coral.rag.indexer import CoralIndexer
+
+    indexer = CoralIndexer(db_path=db_path)
+    total = 0
+
+    # Index in priority order
+    dirs_to_index = [
+        ("YAML configs", workflow / "parm"),
+        ("ecFlow definitions", workflow / "ecf"),
+        ("Execution scripts", workflow / "scripts"),
+        ("Shell utilities", workflow / "ush" / "nosofs"),
+        ("Fix files", workflow / "fix"),
+        ("Python package", workflow / "ush" / "python" / "nos_ofs"),
+    ]
+
+    for label, path in dirs_to_index:
+        if path.is_dir():
+            with Status(f"🪸 [cyan]Indexing {label}...[/]", console=console, spinner="dots"):
+                count = indexer.index_directory(str(path))
+            console.print(f"  [green]{label}[/]: {count} chunks")
+            total += count
+        else:
+            console.print(f"  [dim]{label}[/]: skipped (not found)")
+
+    # Also index README
+    readme = workflow / "README.md"
+    if readme.is_file():
+        count = indexer.index_file(str(readme))
+        console.print(f"  [green]README[/]: {count} chunks")
+        total += count
+
+    console.print(f"\n[bold green]Indexed {total} total chunks from {workflow_dir}[/]")
 
 
 @app.command()
