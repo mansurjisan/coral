@@ -413,6 +413,33 @@ class Orchestrator:
 
             record_audit_event("query_end", success=True)
 
+    async def delegate(self, from_section: str, to_section: str, query: str) -> str:
+        """Allow one agent to delegate a sub-query to another agent.
+
+        Example: WORKFLOW agent needs observation data from DATA agent.
+        The delegation happens transparently without going through the
+        full classify/synthesize pipeline.
+        """
+        if to_section not in self.agents:
+            return f"Unknown section: {to_section}"
+
+        target = self.agents[to_section]
+        logger.info("Delegation: %s -> %s: %s", from_section, to_section, query[:80])
+        record_audit_event(
+            "delegation",
+            from_section=from_section,
+            to_section=to_section,
+            query_chars=len(query),
+        )
+
+        try:
+            result = await target.chat(query)
+            target.clear_history()  # Don't pollute the target's session
+            return result
+        except Exception as e:
+            logger.error("Delegation to %s failed: %s", to_section, e)
+            return f"Delegation to {to_section} failed: {e}"
+
     def reset(self):
         """Clear all agent histories."""
         self.history.clear()

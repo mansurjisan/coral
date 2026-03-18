@@ -18,6 +18,7 @@ _SLASH_COMMANDS = [
     "/help", "/clear", "/reset", "/mode", "/save",
     "/memory", "/remember", "/forget", "/tools",
     "/status", "/report", "/watch", "/audit", "/techmemo",
+    "/alert", "/branch", "/branches",
 ]
 _slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
@@ -97,6 +98,9 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/watch[/]        Watch a job (e.g. /watch 9848988)
   [cyan]/audit[/]        Show tool call history and stats
   [cyan]/techmemo[/]     Auto-generate NOAA tech memo draft
+  [cyan]/alert[/]        Set a threshold alert (e.g. /alert 8518750 > 1.5)
+  [cyan]/branch[/]       Save current conversation and start a new branch
+  [cyan]/branches[/]     List saved conversation branches
   [cyan]/help[/]         Show this help
 
   [bold]Query prefixes:[/]
@@ -209,7 +213,144 @@ async def _handle_slash_command(
         await _generate_techmemo(agent, console)
         return True
 
+    if command == "/alert":
+        _set_alert(arg, agent, console)
+        return True
+
+    if command == "/branch":
+        _branch_conversation(arg, chat_log, console)
+        return True
+
+    if command == "/branches":
+        _list_branches(console)
+        return True
+
     return False
+
+
+# ---------------------------------------------------------------------------
+# Alert system
+# ---------------------------------------------------------------------------
+
+_active_alerts: list[dict] = []
+
+
+def _set_alert(arg: str, agent, console: Console) -> None:
+    """Set a threshold alert for a station or variable.
+
+    Usage: /alert <station_id> <operator> <threshold>
+    Example: /alert 8518750 > 1.5
+    """
+    import re
+    import threading
+
+    parts = arg.strip().split()
+    if len(parts) < 3:
+        console.print(
+            "[dim]Usage: /alert <station_id> <operator> <value>\n"
+            "  Example: /alert 8518750 > 1.5\n"
+            "  Operators: > < >= <=[/]"
+        )
+        return
+
+    station_id = parts[0]
+    operator = parts[1]
+    try:
+        threshold = float(parts[2])
+    except ValueError:
+        console.print(f"[red]Invalid threshold: {parts[2]}[/]")
+        return
+
+    if operator not in (">", "<", ">=", "<="):
+        console.print(f"[red]Invalid operator: {operator}. Use > < >= <=[/]")
+        return
+
+    alert = {
+        "station_id": station_id,
+        "operator": operator,
+        "threshold": threshold,
+        "active": True,
+    }
+    _active_alerts.append(alert)
+    console.print(
+        f"[green]Alert set:[/] Notify when water level at station "
+        f"{station_id} {operator} {threshold}m"
+    )
+
+    # Background check thread
+    def check_alert():
+        import subprocess
+        import time as _t
+
+        while alert["active"]:
+            _t.sleep(300)  # Check every 5 minutes
+            try:
+                # Use CO-OPS API to check latest water level
+                import urllib.request
+                url = (
+                    f"https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+                    f"?station={station_id}&product=water_level&datum=MLLW"
+                    f"&units=metric&time_zone=gmt&date=latest&format=json"
+                    f"&application=coral"
+                )
+                with urllib.request.urlopen(url, timeout=15) as resp:
+                    import json as _json
+                    data = _json.loads(resp.read())
+                    if "data" in data and data["data"]:
+                        value = float(data["data"][0]["v"])
+                        triggered = False
+                        if operator == ">" and value > threshold:
+                            triggered = True
+                        elif operator == "<" and value < threshold:
+                            triggered = True
+                        elif operator == ">=" and value >= threshold:
+                            triggered = True
+                        elif operator == "<=" and value <= threshold:
+                            triggered = True
+
+                        if triggered:
+                            console.print(
+                                f"\n[bold red]🚨 ALERT: Station {station_id} "
+                                f"water level = {value:.3f}m "
+                                f"({operator} {threshold}m)[/]"
+                            )
+                            alert["active"] = False
+                            return
+            except Exception:
+                continue
+
+    thread = threading.Thread(target=check_alert, daemon=True)
+    thread.start()
+
+
+# ---------------------------------------------------------------------------
+# Conversation branching
+# ---------------------------------------------------------------------------
+
+_branches: dict[str, list[dict]] = {}
+
+
+def _branch_conversation(name: str, chat_log: list[dict], console: Console) -> None:
+    """Save current conversation as a named branch and start fresh."""
+    if not name:
+        name = f"branch_{len(_branches) + 1}"
+
+    _branches[name] = list(chat_log)  # Copy current log
+    chat_log.clear()
+    console.print(f"[green]Saved branch '{name}' ({len(_branches[name])} messages). Starting fresh.[/]")
+
+
+def _list_branches(console: Console) -> None:
+    """List all saved conversation branches."""
+    if not _branches:
+        console.print("[dim]No branches saved. Use /branch <name> to create one.[/]")
+        return
+
+    console.print("[bold]Conversation branches:[/]")
+    for name, log in _branches.items():
+        msg_count = len(log)
+        last_msg = log[-1]["content"][:60] + "..." if log else ""
+        console.print(f"  [cyan]{name}[/] — {msg_count} messages — {last_msg}")
 
 
 # Tool call audit log (populated by the tool callback)
