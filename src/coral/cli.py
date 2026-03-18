@@ -247,6 +247,15 @@ async def _set_alert_via_mcp(arg: str, agent, console: Console) -> None:
     import threading
 
     parts = arg.strip().split()
+
+    # Sub-commands (before length check)
+    if parts and parts[0] == "list":
+        await _alert_subcommand(agent, "coral_list_alerts", {}, console)
+        return
+    if parts and parts[0] == "check":
+        await _alert_subcommand(agent, "coral_check_alerts", {}, console)
+        return
+
     if len(parts) < 3:
         console.print(
             "[dim]Usage: /alert <station_id> <operator> <value>\n"
@@ -254,14 +263,6 @@ async def _set_alert_via_mcp(arg: str, agent, console: Console) -> None:
             "  Operators: > < >= <=\n"
             "  Also: /alert list | /alert check[/]"
         )
-        return
-
-    # Sub-commands
-    if parts[0] == "list":
-        await _alert_subcommand(agent, "coral_list_alerts", {}, console)
-        return
-    if parts[0] == "check":
-        await _alert_subcommand(agent, "coral_check_alerts", {}, console)
         return
 
     station_id = parts[0]

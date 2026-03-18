@@ -204,6 +204,131 @@ class TestAudit:
 # Graceful degradation
 # ---------------------------------------------------------------------------
 
+class TestAlertMCP:
+    """Test the MCP-mediated /alert flow."""
+
+    @pytest.mark.asyncio
+    async def test_alert_create_calls_mcp_tool(self):
+        from coral.cli import _set_alert_via_mcp
+
+        agent = MagicMock()
+        bridge = MagicMock()
+        bridge.tool_map = {"coral_create_alert": ("session", "alerts")}
+        bridge.call_tool = AsyncMock(return_value="## Alert Created\n\n| ID | `a1` |")
+        agent.mcp_bridge = bridge
+        console = MagicMock()
+
+        await _set_alert_via_mcp("8518750 > 1.5", agent, console)
+
+        bridge.call_tool.assert_called_once_with("coral_create_alert", {
+            "station_id": "8518750",
+            "operator": ">",
+            "threshold": 1.5,
+        })
+
+    @pytest.mark.asyncio
+    async def test_alert_list_subcommand(self):
+        from coral.cli import _set_alert_via_mcp
+
+        agent = MagicMock()
+        bridge = MagicMock()
+        bridge.tool_map = {"coral_list_alerts": ("session", "alerts")}
+        bridge.call_tool = AsyncMock(return_value="No alerts configured.")
+        agent.mcp_bridge = bridge
+        console = MagicMock()
+
+        await _set_alert_via_mcp("list", agent, console)
+
+        bridge.call_tool.assert_called_once_with("coral_list_alerts", {})
+
+    @pytest.mark.asyncio
+    async def test_alert_check_subcommand(self):
+        from coral.cli import _set_alert_via_mcp
+
+        agent = MagicMock()
+        bridge = MagicMock()
+        bridge.tool_map = {"coral_check_alerts": ("session", "alerts")}
+        bridge.call_tool = AsyncMock(return_value="No active alerts to check.")
+        agent.mcp_bridge = bridge
+        console = MagicMock()
+
+        await _set_alert_via_mcp("check", agent, console)
+
+        bridge.call_tool.assert_called_once_with("coral_check_alerts", {})
+
+    @pytest.mark.asyncio
+    async def test_alert_no_server_shows_message(self):
+        from coral.cli import _set_alert_via_mcp
+
+        agent = MagicMock()
+        bridge = MagicMock()
+        bridge.tool_map = {}  # No alert tools
+        agent.mcp_bridge = bridge
+        console = MagicMock()
+
+        await _set_alert_via_mcp("8518750 > 1.5", agent, console)
+
+        output = str(console.print.call_args_list)
+        assert "not available" in output
+
+    @pytest.mark.asyncio
+    async def test_alert_invalid_operator(self):
+        from coral.cli import _set_alert_via_mcp
+
+        console = MagicMock()
+        await _set_alert_via_mcp("8518750 == 1.5", MagicMock(), console)
+
+        output = str(console.print.call_args_list)
+        assert "Invalid operator" in output
+
+    @pytest.mark.asyncio
+    async def test_alert_invalid_threshold(self):
+        from coral.cli import _set_alert_via_mcp
+
+        console = MagicMock()
+        await _set_alert_via_mcp("8518750 > abc", MagicMock(), console)
+
+        output = str(console.print.call_args_list)
+        assert "Invalid threshold" in output
+
+    @pytest.mark.asyncio
+    async def test_alert_too_few_args_shows_help(self):
+        from coral.cli import _set_alert_via_mcp
+
+        console = MagicMock()
+        await _set_alert_via_mcp("", MagicMock(), console)
+
+        output = str(console.print.call_args_list)
+        assert "Usage" in output
+
+
+class TestGetMCPBridge:
+    """Test bridge extraction from agent/orchestrator."""
+
+    def test_from_single_agent(self):
+        from coral.cli import _get_mcp_bridge
+
+        agent = MagicMock()
+        agent.mcp_bridge = MagicMock()
+        assert _get_mcp_bridge(agent) is agent.mcp_bridge
+
+    def test_from_orchestrator(self):
+        from coral.cli import _get_mcp_bridge
+
+        agent = MagicMock()
+        del agent.mcp_bridge  # Orchestrator doesn't have direct bridge
+        sub_agent = MagicMock()
+        sub_agent.mcp_bridge = MagicMock()
+        agent.agents = {"DATA": sub_agent}
+        assert _get_mcp_bridge(agent) is sub_agent.mcp_bridge
+
+    def test_returns_none_when_unavailable(self):
+        from coral.cli import _get_mcp_bridge
+
+        agent = MagicMock(spec=[])  # No attributes
+        assert _get_mcp_bridge(agent) is None
+
+
 class TestGracefulDegradation:
     """Test that failures don't crash the session."""
 
@@ -212,7 +337,6 @@ class TestGracefulDegradation:
 
         console = MagicMock()
         _save_conversation([], "", console)
-        # Should print "No conversation" message
         console.print.assert_called_once()
 
     def test_list_branches_empty(self):
