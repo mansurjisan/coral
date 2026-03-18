@@ -39,7 +39,8 @@
         "pbs",
         "ufs_runner",
         "hpc_system",
-        "nos_workflow"
+        "nos_workflow",
+        "alerts"
       ]
     }
   },
@@ -365,6 +366,26 @@
         "system_info",
         "user_groups",
         "recent_jobs"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "alerts": {
+      "trust_class": "workflow-diagnostic",
+      "risk": "read-only",
+      "allowed_operations": [
+        "create_alert",
+        "list_alerts",
+        "check_alerts",
+        "pause_alert",
+        "delete_alert",
+        "get_alert_history"
       ],
       "environments": [
         "local",

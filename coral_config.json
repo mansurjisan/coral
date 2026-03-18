@@ -83,6 +83,10 @@
     "pbs": {
       "command": "python",
       "args": ["-m", "coral.servers.pbs_server"]
+    },
+    "alerts": {
+      "command": "python",
+      "args": ["-m", "alert_mcp"]
     }
   }
 }
