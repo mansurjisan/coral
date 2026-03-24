@@ -13,6 +13,7 @@ import typer
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.key_binding import KeyBindings
 
 _SLASH_COMMANDS = [
     "/help", "/clear", "/reset", "/mode", "/save",
@@ -971,13 +972,35 @@ def chat(
                 t0 = _time.monotonic()
 
                 try:
-                    # Run with thinking spinner
-                    with Status(
-                        "🪸 [cyan]Thinking...[/]",
-                        console=console,
-                        spinner="dots",
-                    ):
-                        response = await agent.chat(stripped)
+                    # Run agent.chat as a cancellable task
+                    import signal
+                    _cancelled = False
+
+                    def _cancel_handler(sig, frame):
+                        nonlocal _cancelled
+                        _cancelled = True
+
+                    # Temporarily catch Ctrl+C to cancel query instead of exiting
+                    old_handler = signal.signal(signal.SIGINT, _cancel_handler)
+                    chat_task = asyncio.create_task(agent.chat(stripped))
+                    try:
+                        with Status(
+                            "🪸 [cyan]Thinking... (Ctrl+C to cancel)[/]",
+                            console=console,
+                            spinner="dots",
+                        ):
+                            while not chat_task.done():
+                                if _cancelled:
+                                    chat_task.cancel()
+                                    break
+                                await asyncio.sleep(0.1)
+                            response = await chat_task
+                    except (asyncio.CancelledError, KeyboardInterrupt):
+                        console.print("\n[dim]Query cancelled.[/]")
+                        signal.signal(signal.SIGINT, old_handler)
+                        continue
+                    finally:
+                        signal.signal(signal.SIGINT, old_handler)
                     elapsed = _time.monotonic() - t0
 
                     chat_log.append({"role": "assistant", "content": response})
