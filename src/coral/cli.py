@@ -972,30 +972,24 @@ def chat(
                 t0 = _time.monotonic()
 
                 try:
-                    # Run agent.chat as a cancellable task
+                    # Run query with Ctrl+C cancellation
                     import signal
                     _cancelled = False
 
                     def _cancel_handler(sig, frame):
                         nonlocal _cancelled
                         _cancelled = True
+                        raise KeyboardInterrupt
 
-                    # Temporarily catch Ctrl+C to cancel query instead of exiting
                     old_handler = signal.signal(signal.SIGINT, _cancel_handler)
-                    chat_task = asyncio.create_task(agent.chat(stripped))
                     try:
                         with Status(
                             "🪸 [cyan]Thinking... (Ctrl+C to cancel)[/]",
                             console=console,
                             spinner="dots",
                         ):
-                            while not chat_task.done():
-                                if _cancelled:
-                                    chat_task.cancel()
-                                    break
-                                await asyncio.sleep(0.1)
-                            response = await chat_task
-                    except (asyncio.CancelledError, KeyboardInterrupt):
+                            response = await agent.chat(stripped)
+                    except KeyboardInterrupt:
                         console.print("\n[dim]Query cancelled.[/]")
                         signal.signal(signal.SIGINT, old_handler)
                         continue
