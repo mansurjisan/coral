@@ -22,30 +22,7 @@ CORAL combines a local LLM (via Ollama) with 150+ tools across 22 MCP servers fo
 
 All running on Ollama with open-weight LLMs. No external APIs, no commercial licenses.
 
-## Deployment
-
-CORAL is deployed and tested on two HPC systems:
-
-| System | Architecture | GPU | Partition | Guide |
-|--------|-------------|-----|-----------|-------|
-| **NOAA Ursa** | x86_64 | NVIDIA H100 NVL (93 GB) | `u1-h100` | [Setup Guide](docs/setup_ursa.md) |
-| **TACC Vista** | ARM64 | NVIDIA GH200 (96 GB HBM3) | `gh-dev` | [Setup Guide](docs/setup_vista.md) |
-
-### Quick Start (TACC Vista)
-
-```bash
-module load gcc/14.2.0 python3/3.11.8
-cd $WORK
-git clone https://github.com/mansurjisan/coral.git
-cd coral && git checkout feature/multi-agent
-source slurm/vista/setup.sh
-```
-
-### Quick Start (NOAA Ursa)
-
-See [docs/setup_ursa.md](docs/setup_ursa.md) for step-by-step instructions.
-
-### Quick Start (Local)
+## Quick Start
 
 ```bash
 git clone https://github.com/mansurjisan/coral.git
@@ -55,33 +32,7 @@ ollama pull qwen3:32b
 coral chat --model qwen3:32b --mode multi
 ```
 
-## Multi-Agent Architecture
-
-CORAL V2 routes queries to three specialized agents coordinated by an orchestrator with confidence-scored keyword + LLM classification:
-
-- **Data** — live NOAA data, NetCDF inspection, observation/forecast retrieval
-- **Code** — indexed documentation, source code explanation, namelists, Python execution
-- **Workflow** — Slurm/PBS diagnostics, ecFlow suites, UFS experiments, NOS configs, HPC system admin, alerts
-
-```text
-User
-  -> Orchestrator (keyword routing + LLM fallback)
-      -> Data Agent (94 tools)
-      -> Code Agent (2 tools)
-      -> Workflow Agent (48 tools)
-  -> Synthesized response
-```
-
-```text
-You: Compare SECOFS and STOFS-3D-ATL forcing configurations
-
-  ⚡ nos_compare_configs(secofs, stofs_3d_atl)
-
-🪸 CORAL: SECOFS uses GFS/HRRR atmospheric forcing with 2 met sources,
-  while STOFS-3D-ATL uses GEFS/RRFS ensemble forcing. Both use RTOFS
-  for ocean boundary conditions and TPXO9 for tides...
-  ── 21.0s · 967 tokens · 64.5 tok/s · confidence 60% ──
-```
+For HPC deployment, see [NOAA Ursa setup](docs/setup_ursa.md) or [TACC Vista setup](docs/setup_vista.md).
 
 ## MCP Servers
 
