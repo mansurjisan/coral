@@ -83,32 +83,13 @@ You: Compare SECOFS and STOFS-3D-ATL forcing configurations
   ── 21.0s · 967 tokens · 64.5 tok/s · confidence 60% ──
 ```
 
-## Data Sources (22 MCP Servers)
+## MCP Servers
 
-| Server | Source | Data |
-|--------|--------|------|
-| `coops-mcp` | CO-OPS | Water levels, tide predictions, met data from 200+ stations |
-| `nhc-mcp` | NHC | Active storms, forecast tracks, surge warnings |
-| `stofs-mcp` | STOFS | Storm surge forecasts (2D/3D Atlantic, Pacific, Global) |
-| `recon-mcp` | Hurricane Hunters | Flight-level recon, vortex messages |
-| `erddap-mcp` | CoastWatch ERDDAP | Satellite SST, ocean color, in-situ data |
-| `ofs-mcp` | OFS | Regional nowcast/forecast guidance |
-| `adcirc-mcp` | ADCIRC | Model config parsing (fort.14/15/22) |
-| `goes-mcp` | GOES | Satellite imagery (GOES-16/18) |
-| `schism-mcp` | SCHISM | Model config, param.nml parsing |
-| `usgs-mcp` | USGS | Streamflow, river gauges, flood status |
-| `winds-mcp` | NDBC/ASOS | Wind observations, gust data |
-| `ww3-mcp` | WW3 | Wave forecasts, buoy data |
-| `hpc-system-mcp` | RDHPCS | Disk quotas, FairShare, allocations, modules, partitions |
-| `nos-workflow-mcp` | NOS OFS | Config reading, comparison, failure diagnosis, anomaly detection |
-| `ufs-runner-mcp` | UFS-Coastal | Experiment create, validate, submit, monitor, collect |
-| `alert-mcp` | CO-OPS | Threshold alerting with MCP-mediated policy controls |
-| `netcdf` | Local | NetCDF inspection, queries, time series, statistics |
-| `rag` | Local | Documentation search via hybrid BM25 + vector retrieval |
-| `viz` | Local | Python execution with Apptainer sandbox |
-| `slurm` | Local | Slurm job management and log analysis |
-| `ecflow` | Local | ecFlow suite status and task inspection |
-| `pbs` | Local | PBS job management for WCOSS2 |
+CORAL connects to **22 MCP servers** providing 150+ tools across three categories:
+
+- **Ocean data** (12 servers) — CO-OPS, NHC, STOFS, ERDDAP, OFS, GOES, USGS, NDBC, WW3, ADCIRC, SCHISM, Hurricane Recon via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp)
+- **HPC & workflow** (6 servers) — Slurm, PBS (WCOSS2), ecFlow, UFS experiment runner, HPC system admin, NOS workflow configs
+- **Local tools** (4 servers) — NetCDF queries, RAG documentation search, Python execution (sandboxed), threshold alerting
 
 ## CLI Features
 
