@@ -14,19 +14,12 @@
 
 ## What It Does
 
-CORAL combines a local LLM (via Ollama) with 150+ tools across 22 MCP servers for ocean data retrieval, code analysis, HPC workflow management, and operational forecast system support:
+- **Ocean data & analysis** — Real-time water levels, hurricane tracks, storm surge forecasts, satellite data via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp), plus Python code execution for plotting and analysis
+- **Code & documentation** — RAG search over SCHISM/ADCIRC source code, NOAA tech memos, namelists, and NOS workflow configs
+- **HPC workflows** — Slurm and PBS job diagnostics, ecFlow suite monitoring, UFS-Coastal experiment management, disk quotas, FairShare, threshold alerting
+- **Persistent & portable** — Memory across sessions, CLI with slash commands, web UI, deployed on NOAA Ursa and TACC Vista
 
-- **Live ocean data** — Query real-time water levels, hurricane tracks, storm surge forecasts, satellite data through [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) servers
-- **RAG over documentation** — Search SCHISM/ADCIRC source code, NOAA tech memos, model configs, and namelists
-- **HPC system management** — Disk quotas, FairShare, allocations, modules, partitions on Slurm and PBS systems
-- **UFS experiment lifecycle** — Create, validate, submit, monitor, and collect outputs from UFS-Coastal experiments
-- **NOS workflow support** — Read/compare OFS configs (SECOFS, STOFS-3D-ATL), diagnose failures, anomaly detection, skill assessment
-- **MCP-mediated alerting** — Threshold monitoring for CO-OPS stations with policy controls and audit trail
-- **Code execution** — Generate and run Python analysis scripts with Apptainer-backed sandboxing
-- **Persistent memory** — Remembers user preferences, accounts, and paths across sessions
-- **CLI + Web UI** — Interactive terminal chat with slash commands or Gradio web interface
-
-All running on Ollama with open-weight LLMs. No external APIs, no commercial licenses.
+All self-hosted on Ollama with open-weight LLMs. No external APIs, no cloud dependencies.
 
 ## Quick Start
 
