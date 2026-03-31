@@ -58,11 +58,17 @@ def _auto_detect_ollama() -> None:
 
     # Check common locations for coral_host.env
     user = os.environ.get("USER", "")
+    work = os.environ.get("WORK", "")
     candidates = [
+        # Ursa
         Path(f"/scratch5/purged/{user}/coral_host.env"),
+        # TACC Vista
+        Path(f"{work}/coral_install/coral_host.env") if work else None,
+        # Generic
         Path.home() / "coral_host.env",
         Path("coral_host.env"),
     ]
+    candidates = [c for c in candidates if c is not None]
     for candidate in candidates:
         if candidate.exists():
             try:
