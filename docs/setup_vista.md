@@ -22,6 +22,8 @@ Step-by-step guide based on actual deployment on March 31, 2026.
 ## Quick Start (Automated)
 
 ```bash
+module load gcc/14.2.0 python3/3.11.8
+cd $WORK
 git clone https://github.com/mansurjisan/coral.git
 cd coral && git checkout feature/multi-agent
 source slurm/vista/setup.sh
