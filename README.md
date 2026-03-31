@@ -4,68 +4,92 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-303%20passing-brightgreen.svg)](tests/)
 
 ## What It Does
 
-CORAL combines a local LLM (via Ollama) with live ocean data tools, a RAG knowledge base over scientific code and documentation, and HPC workflow integration:
+CORAL combines a local LLM (via Ollama) with 150+ tools across 22 MCP servers for ocean data retrieval, code analysis, HPC workflow management, and operational forecast system support:
 
-- **Live ocean data** — Query real-time water levels, hurricane tracks, storm surge forecasts, recon flights, and satellite data through [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) servers
+- **Live ocean data** — Query real-time water levels, hurricane tracks, storm surge forecasts, satellite data through [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) servers
 - **RAG over documentation** — Search SCHISM/ADCIRC source code, NOAA tech memos, model configs, and namelists
-- **Local file interaction** — Inspect NetCDF model outputs, parse Slurm logs, monitor ecFlow workflows
-- **Code execution** — Generate and run Python analysis scripts (xarray, matplotlib, cartopy) with Apptainer-backed sandboxing on Ursa
-- **CLI + Web UI** — Interactive terminal chat or Gradio web interface
+- **HPC system management** — Disk quotas, FairShare, allocations, modules, partitions on Slurm and PBS systems
+- **UFS experiment lifecycle** — Create, validate, submit, monitor, and collect outputs from UFS-Coastal experiments
+- **NOS workflow support** — Read/compare OFS configs (SECOFS, STOFS-3D-ATL), diagnose failures, anomaly detection, skill assessment
+- **MCP-mediated alerting** — Threshold monitoring for CO-OPS stations with policy controls and audit trail
+- **Code execution** — Generate and run Python analysis scripts with Apptainer-backed sandboxing
+- **Persistent memory** — Remembers user preferences, accounts, and paths across sessions
+- **CLI + Web UI** — Interactive terminal chat with slash commands or Gradio web interface
 
 All running on Ollama with open-weight LLMs. No external APIs, no commercial licenses.
 
-## V2 Structure
+## Deployment
 
-CORAL V2 separates the assistant into three focused sections coordinated by an orchestrator:
+CORAL is deployed and tested on two HPC systems:
 
-- **Data** — live NOAA data, NetCDF inspection, and observation/forecast comparisons
-- **Code** — indexed documentation, source code explanation, namelists, and plotting
-- **Workflow** — Slurm and ecFlow diagnosis for NOAA HPC workflows
+| System | Architecture | GPU | Partition | Guide |
+|--------|-------------|-----|-----------|-------|
+| **NOAA Ursa** | x86_64 | NVIDIA H100 NVL (93 GB) | `u1-h100` | [Setup Guide](docs/setup_ursa.md) |
+| **TACC Vista** | ARM64 | NVIDIA GH200 (96 GB HBM3) | `gh-dev` | [Setup Guide](docs/setup_vista.md) |
 
-The shared runtime still owns MCP connectivity, session state, response synthesis, and the legacy single-agent fallback mode.
+### Quick Start (TACC Vista)
 
-```text
-You: What is the current water level at The Battery, NYC?
-
-🪸 CORAL: [calls coops-mcp → get_water_levels]
-  The current water level at The Battery (station 8518750) is 0.42m
-  above MLLW as of 2025-03-05 14:30 UTC. The predicted tide was 0.38m,
-  so the surge residual is +0.04m. No flood thresholds exceeded.
-
-You: Compare that with the STOFS forecast for the next 48 hours.
-
-🪸 CORAL: [calls stofs-mcp → get_stofs_forecast]
-  STOFS-3D-Atlantic shows water levels peaking at 0.67m MLLW tomorrow
-  at 03:00 UTC — 0.12m above predicted tide. Below minor flood
-  threshold (0.83m). No flooding expected.
-
-You: My last STOFS run on Ursa failed. What happened?
-
-🪸 CORAL: [calls slurm-mcp → diagnose_job_failure]
-  Job 4521893 failed with exit code 137 (SIGKILL) after 2h15m.
-  MaxRSS was 180GB against 192GB limit — likely OOM. The log shows
-  "CFL violation at timestep 4521" before termination. Consider
-  reducing dt or increasing --mem allocation.
-
-You: What does the SCHISM parameter IHFSKIP control?
-
-🪸 CORAL: [calls rag-mcp → search_documentation]
-  From schism_init.F90 (line 342): IHFSKIP controls the output skip
-  count for hotstart files. Setting ihfskip=36 with dt=120s writes
-  a hotstart file every 36×120 = 4320 seconds (1.2 hours).
+```bash
+module load gcc/14.2.0 python3/3.11.8
+cd $WORK
+git clone https://github.com/mansurjisan/coral.git
+cd coral && git checkout feature/multi-agent
+source slurm/vista/setup.sh
 ```
 
-## Data Sources
+### Quick Start (NOAA Ursa)
+
+See [docs/setup_ursa.md](docs/setup_ursa.md) for step-by-step instructions.
+
+### Quick Start (Local)
+
+```bash
+git clone https://github.com/mansurjisan/coral.git
+cd coral
+pip install -e .
+ollama pull qwen3:32b
+coral chat --model qwen3:32b --mode multi
+```
+
+## Multi-Agent Architecture
+
+CORAL V2 routes queries to three specialized agents coordinated by an orchestrator with confidence-scored keyword + LLM classification:
+
+- **Data** — live NOAA data, NetCDF inspection, observation/forecast retrieval
+- **Code** — indexed documentation, source code explanation, namelists, Python execution
+- **Workflow** — Slurm/PBS diagnostics, ecFlow suites, UFS experiments, NOS configs, HPC system admin, alerts
+
+```text
+User
+  -> Orchestrator (keyword routing + LLM fallback)
+      -> Data Agent (94 tools)
+      -> Code Agent (2 tools)
+      -> Workflow Agent (48 tools)
+  -> Synthesized response
+```
+
+```text
+You: Compare SECOFS and STOFS-3D-ATL forcing configurations
+
+  ⚡ nos_compare_configs(secofs, stofs_3d_atl)
+
+🪸 CORAL: SECOFS uses GFS/HRRR atmospheric forcing with 2 met sources,
+  while STOFS-3D-ATL uses GEFS/RRFS ensemble forcing. Both use RTOFS
+  for ocean boundary conditions and TPXO9 for tides...
+  ── 21.0s · 967 tokens · 64.5 tok/s · confidence 60% ──
+```
+
+## Data Sources (22 MCP Servers)
 
 | Server | Source | Data |
 |--------|--------|------|
 | `coops-mcp` | CO-OPS | Water levels, tide predictions, met data from 200+ stations |
 | `nhc-mcp` | NHC | Active storms, forecast tracks, surge warnings |
-| `stofs-mcp` | STOFS | Storm surge forecasts |
+| `stofs-mcp` | STOFS | Storm surge forecasts (2D/3D Atlantic, Pacific, Global) |
 | `recon-mcp` | Hurricane Hunters | Flight-level recon, vortex messages |
 | `erddap-mcp` | CoastWatch ERDDAP | Satellite SST, ocean color, in-situ data |
 | `ofs-mcp` | OFS | Regional nowcast/forecast guidance |
@@ -75,56 +99,57 @@ You: What does the SCHISM parameter IHFSKIP control?
 | `usgs-mcp` | USGS | Streamflow, river gauges, flood status |
 | `winds-mcp` | NDBC/ASOS | Wind observations, gust data |
 | `ww3-mcp` | WW3 | Wave forecasts, buoy data |
+| `hpc-system-mcp` | RDHPCS | Disk quotas, FairShare, allocations, modules, partitions |
+| `nos-workflow-mcp` | NOS OFS | Config reading, comparison, failure diagnosis, anomaly detection |
+| `ufs-runner-mcp` | UFS-Coastal | Experiment create, validate, submit, monitor, collect |
+| `alert-mcp` | CO-OPS | Threshold alerting with MCP-mediated policy controls |
+| `netcdf` | Local | NetCDF inspection, queries, time series, statistics |
+| `rag` | Local | Documentation search via hybrid BM25 + vector retrieval |
+| `viz` | Local | Python execution with Apptainer sandbox |
+| `slurm` | Local | Slurm job management and log analysis |
+| `ecflow` | Local | ecFlow suite status and task inspection |
+| `pbs` | Local | PBS job management for WCOSS2 |
 
-## Quick Start
+## CLI Features
 
-```bash
-# Install
-git clone https://github.com/mansurjisan/coral.git
-cd coral
-pip install -e .
-
-# Pull a model
-ollama pull qwen3:8b
-
-# Chat (multi-agent orchestrator, default)
-coral chat --model qwen3:8b
-
-# Chat (single-agent legacy mode)
-coral chat --model qwen3:8b --mode single
-
-# Web UI
-coral serve --model qwen3:8b --port 7860
+```
+╭──────────────────────── CORAL v0.1.0 ────────────────────────╮
+│  🪸 Model  qwen3:32b  │  Tools  150  │  Mode  multi-agent   │
+│  🖥️  User   mansurjisan  │  Host   login2.vista.tacc.utexas.edu │
+│  🧠 3 memories loaded                                        │
+╰──── Coastal Ocean Research AI Layer · /help for commands ────╯
 ```
 
-## Architecture
-
-```text
-┌──────────────────────────────────────────┐
-│           CORAL Orchestrator             │
-│        (Ollama + MCP bridge)             │
-├──────────────┬──────────────┬────────────┤
-│ Data Section │ Code Section │ Workflow   │
-│              │              │ Section    │
-│ ocean-mcp    │ rag-mcp      │ slurm-mcp  │
-│ netcdf-mcp   │ viz-mcp      │ ecflow-mcp │
-└──────┬───────┴──────┬───────┴─────┬──────┘
-   NOAA APIs      Indexed docs     HPC state
-```
-
-On Ursa, `viz-mcp` runs through `containers/coral_sandbox.sif` via Apptainer.
+| Command | Description |
+|---------|-------------|
+| `/help` | Show all commands |
+| `/tools` | Tool count per section (DATA/CODE/WORKFLOW) |
+| `/status` | Quick dashboard: Ollama health, running jobs, disk usage |
+| `/memory` | Show saved memories |
+| `/remember` | Save a preference (e.g. `/remember account = coastal`) |
+| `/forget` | Remove a memory |
+| `/save` | Export conversation to markdown |
+| `/report` | Auto-generate HPC status report |
+| `/techmemo` | Auto-generate NOAA tech memo draft |
+| `/alert` | Set threshold alert (e.g. `/alert 8518750 > 1.5`) |
+| `/watch` | Monitor a job (e.g. `/watch 9848988`) |
+| `/branch` | Save conversation, start fresh |
+| `/audit` | Show tool call history and stats |
+| `/clear` | Clear conversation history |
+| `@model` | Override model for one query (e.g. `@qwen3:8b What is SCHISM?`) |
 
 ## Audit & Policy
 
-CORAL includes structured audit logging and a declarative authorization policy:
-
-- **Audit logging** — Every query and tool call is recorded to `logs/coral_audit.jsonl` with timestamps, routing decisions, tool timing, and sandbox usage. Set `CORAL_AUDIT_LOG` to customize the log path.
-- **Policy manifest** (`src/coral/policy_manifest.json`) — Defines which MCP servers each agent section can access, trust classes, and per-environment sandbox requirements. Unknown servers in `coral_config.json` are rejected at startup.
-- **Sandbox enforcement** — Set `CORAL_REQUIRE_SANDBOX=1` to block host-side Python execution (recommended for shared HPC).
+- **Audit logging** — Every query and tool call recorded with timestamps, routing decisions, tool timing, confidence scores, and sandbox usage
+- **Policy manifest** (`src/coral/policy_manifest.json`) — Defines which MCP servers each agent section can access, trust classes, and per-environment sandbox requirements
+- **Sandbox enforcement** — Set `CORAL_REQUIRE_SANDBOX=1` to block host-side Python execution
+- **Tool caching** — 5-minute TTL cache for read-only tools (HPC status, configs)
+- **Retry with backoff** — Automatic retry on transient Ollama connection failures
 
 ## Related
 
-- [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) — MCP servers for NOAA ocean data
+- [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) — MCP servers for NOAA ocean data (18 servers)
+- [nos-workflow](https://github.com/mansurjisan/nos-workflow) — NOS Unified Operational Forecast System workflow
 - [Ollama](https://ollama.com) — Local LLM inference
 - [Model Context Protocol](https://modelcontextprotocol.io) — Tool integration standard
 
