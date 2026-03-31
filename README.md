@@ -2,9 +2,14 @@
 
 **A self-hosted AI agent for NOAA HPC that connects local LLMs to ocean data, scientific documentation, and HPC workflows entirely within NOAA's network.**
 
-[![CI](https://github.com/mansurjisan/coral/actions/workflows/ci.yml/badge.svg?branch=feature%2Fmulti-agent)](https://github.com/mansurjisan/coral/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+<p align="center">
+  <a href="https://github.com/mansurjisan/coral/actions/workflows/ci.yml"><img src="https://github.com/mansurjisan/coral/actions/workflows/ci.yml/badge.svg?branch=feature%2Fmulti-agent" alt="CI"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="https://ollama.com"><img src="https://img.shields.io/badge/LLM-Ollama-white.svg" alt="Ollama"></a>
+  <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/protocol-MCP-purple.svg" alt="MCP"></a>
+  <a href="https://github.com/mansurjisan/ocean-mcp"><img src="https://img.shields.io/badge/tools-150+-green.svg" alt="Tools"></a>
+</p>
 
 ## What It Does
 
