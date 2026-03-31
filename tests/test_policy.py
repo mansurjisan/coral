@@ -44,6 +44,7 @@ class TestPolicyManifest:
             "winds",
             "ww3",
             "netcdf",
+            "vdatum",
         ]
         assert get_section_servers("code") == ["rag", "viz"]
         assert get_section_servers("workflow") == [

@@ -21,7 +21,8 @@
         "usgs",
         "winds",
         "ww3",
-        "netcdf"
+        "netcdf",
+        "vdatum"
       ]
     },
     "code": {
@@ -222,6 +223,22 @@
       "risk": "read-only",
       "allowed_operations": [
         "wave_forecast"
+      ],
+      "environments": [
+        "local",
+        "ursa"
+      ],
+      "sandbox_required": {
+        "local": false,
+        "ursa": false
+      }
+    },
+    "vdatum": {
+      "trust_class": "data-read",
+      "risk": "read-only",
+      "allowed_operations": [
+        "convert",
+        "list_datums"
       ],
       "environments": [
         "local",

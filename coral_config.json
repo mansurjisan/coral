@@ -87,6 +87,10 @@
     "alerts": {
       "command": "python",
       "args": ["-m", "alert_mcp"]
+    },
+    "vdatum": {
+      "command": "python",
+      "args": ["-m", "vdatum_mcp"]
     }
   }
 }

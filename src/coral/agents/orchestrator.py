@@ -86,6 +86,8 @@ _DATA_KEYWORDS = [
     "forecast at",
     "forecast for",
     "forecast against",
+    "datum", "vertical datum", "vdatum", "navd88", "mllw", "convert datum",
+    "datum conversion",
 ]
 _CODE_KEYWORDS = [
     "subroutine",
