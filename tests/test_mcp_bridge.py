@@ -93,6 +93,7 @@ class TestCallTool:
 
         class FakeContent:
             """Content object without a .text attribute."""
+
             def __str__(self):
                 return "binary content"
 
@@ -123,14 +124,16 @@ class TestRegisterTools:
 
         bridge._register_tools(session, "server_a", [tool])
 
-        assert bridge.tools == [{
-            "type": "function",
-            "function": {
-                "name": "test_tool",
-                "description": "desc",
-                "parameters": {"type": "object"},
-            },
-        }]
+        assert bridge.tools == [
+            {
+                "type": "function",
+                "function": {
+                    "name": "test_tool",
+                    "description": "desc",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ]
         assert bridge.tool_map["test_tool"] == (session, "server_a")
         assert bridge.tool_server_map["test_tool"] == "server_a"
 

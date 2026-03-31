@@ -13,19 +13,15 @@ class TestExecutePython:
         assert "hello coral" in result
 
     def test_numpy_available(self):
-        result = execute_python('print(np.array([1,2,3]).sum())')
+        result = execute_python("print(np.array([1,2,3]).sum())")
         assert "6" in result
 
     def test_pandas_available(self):
-        result = execute_python(
-            'import pandas as pd; print(pd.DataFrame({"a": [1,2]}).shape)'
-        )
+        result = execute_python('import pandas as pd; print(pd.DataFrame({"a": [1,2]}).shape)')
         assert "(2, 1)" in result
 
     def test_matplotlib_import(self):
-        result = execute_python(
-            'print(matplotlib.get_backend())'
-        )
+        result = execute_python("print(matplotlib.get_backend())")
         assert "Agg" in result
 
     def test_syntax_error(self):
@@ -65,9 +61,11 @@ plt.savefig("/tmp/coral_plot.png")
     def test_requires_sandbox_refuses_host_execution(self, monkeypatch):
         monkeypatch.setenv("CORAL_REQUIRE_SANDBOX", "1")
 
-        with patch.object(viz_server, "_resolve_sandbox_sif", return_value=""), \
-             patch("coral.servers.viz_server.shutil.which", return_value=None), \
-             patch("coral.servers.viz_server.subprocess.run") as mock_run:
+        with (
+            patch.object(viz_server, "_resolve_sandbox_sif", return_value=""),
+            patch("coral.servers.viz_server.shutil.which", return_value=None),
+            patch("coral.servers.viz_server.subprocess.run") as mock_run,
+        ):
             result = execute_python('print("hello")')
 
         assert "Sandboxed Python execution is required" in result
@@ -81,7 +79,7 @@ plt.savefig("/tmp/coral_plot.png")
             returncode=1,
             stdout="",
             stderr="ERROR  : Could not write info to setgroups: Permission denied\n"
-                   "ERROR  : Error while waiting event for user namespace mappings: no event received\n",
+            "ERROR  : Error while waiting event for user namespace mappings: no event received\n",
         )
         host_success = viz_server.subprocess.CompletedProcess(
             args=["python3"],
@@ -90,9 +88,11 @@ plt.savefig("/tmp/coral_plot.png")
             stderr="",
         )
 
-        with patch.object(viz_server, "_resolve_sandbox_sif", return_value="/tmp/fake.sif"), \
-             patch("coral.servers.viz_server.shutil.which", return_value="/usr/bin/apptainer"), \
-             patch("coral.servers.viz_server.subprocess.run", side_effect=[sandbox_failure, host_success]) as mock_run:
+        with (
+            patch.object(viz_server, "_resolve_sandbox_sif", return_value="/tmp/fake.sif"),
+            patch("coral.servers.viz_server.shutil.which", return_value="/usr/bin/apptainer"),
+            patch("coral.servers.viz_server.subprocess.run", side_effect=[sandbox_failure, host_success]) as mock_run,
+        ):
             result = execute_python('print("hello from host")')
 
         assert "hello from host" in result

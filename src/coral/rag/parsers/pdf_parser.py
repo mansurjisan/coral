@@ -20,6 +20,7 @@ class PDFParser:
         if self._converter is None:
             try:
                 from docling.document_converter import DocumentConverter
+
                 self._converter = DocumentConverter()
             except ImportError:
                 logger.warning("docling not installed; PDF parsing unavailable. Install with: pip install docling")
@@ -29,8 +30,12 @@ class PDFParser:
     def parse(self, pdf_path: str) -> list[dict]:
         converter = self._get_converter()
         if converter is None:
-            return [{"text": f"[PDF file: {pdf_path} — install docling to parse]",
-                     "metadata": {"file_path": pdf_path, "type": "pdf"}}]
+            return [
+                {
+                    "text": f"[PDF file: {pdf_path} — install docling to parse]",
+                    "metadata": {"file_path": pdf_path, "type": "pdf"},
+                }
+            ]
 
         result = converter.convert(pdf_path)
         markdown = result.document.export_to_markdown()
@@ -43,27 +48,31 @@ class PDFParser:
         for line in markdown.split("\n"):
             if line.startswith("#"):
                 if current_text.strip():
-                    chunks.append({
-                        "text": current_text.strip(),
-                        "metadata": {
-                            "file_path": pdf_path,
-                            "section": current_section,
-                            "type": "pdf",
-                        },
-                    })
+                    chunks.append(
+                        {
+                            "text": current_text.strip(),
+                            "metadata": {
+                                "file_path": pdf_path,
+                                "section": current_section,
+                                "type": "pdf",
+                            },
+                        }
+                    )
                 current_section = line.lstrip("# ").strip()
                 current_text = line + "\n"
             else:
                 current_text += line + "\n"
 
         if current_text.strip():
-            chunks.append({
-                "text": current_text.strip(),
-                "metadata": {
-                    "file_path": pdf_path,
-                    "section": current_section,
-                    "type": "pdf",
-                },
-            })
+            chunks.append(
+                {
+                    "text": current_text.strip(),
+                    "metadata": {
+                        "file_path": pdf_path,
+                        "section": current_section,
+                        "type": "pdf",
+                    },
+                }
+            )
 
         return chunks

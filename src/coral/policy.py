@@ -41,9 +41,7 @@ def _validate_manifest(manifest: dict) -> None:
     known_envs = set(environments)
     default_env = manifest.get("default_environment")
     if default_env not in known_envs:
-        raise ValueError(
-            f"Policy manifest default environment '{default_env}' is not in environments"
-        )
+        raise ValueError(f"Policy manifest default environment '{default_env}' is not in environments")
 
     for section_name, section_cfg in sections.items():
         section_servers = section_cfg.get("servers")
@@ -52,9 +50,7 @@ def _validate_manifest(manifest: dict) -> None:
         unknown_servers = sorted(set(section_servers) - set(servers))
         if unknown_servers:
             joined = ", ".join(unknown_servers)
-            raise ValueError(
-                f"Section '{section_name}' references unknown servers: {joined}"
-            )
+            raise ValueError(f"Section '{section_name}' references unknown servers: {joined}")
 
     for server_name, server_cfg in servers.items():
         server_envs = server_cfg.get("environments")
@@ -65,21 +61,15 @@ def _validate_manifest(manifest: dict) -> None:
         unknown_envs = sorted(set(server_envs) - known_envs)
         if unknown_envs:
             joined = ", ".join(unknown_envs)
-            raise ValueError(
-                f"Server '{server_name}' references unsupported environments: {joined}"
-            )
+            raise ValueError(f"Server '{server_name}' references unsupported environments: {joined}")
 
         if not isinstance(sandbox_required, dict):
-            raise ValueError(
-                f"Server '{server_name}' must define sandbox_required by environment"
-            )
+            raise ValueError(f"Server '{server_name}' must define sandbox_required by environment")
 
         missing_sandbox_envs = sorted(set(server_envs) - set(sandbox_required))
         if missing_sandbox_envs:
             joined = ", ".join(missing_sandbox_envs)
-            raise ValueError(
-                f"Server '{server_name}' is missing sandbox_required values for: {joined}"
-            )
+            raise ValueError(f"Server '{server_name}' is missing sandbox_required values for: {joined}")
 
 
 def get_runtime_environment() -> str:
@@ -89,9 +79,7 @@ def get_runtime_environment() -> str:
     environment = _normalize_environment(os.environ.get("CORAL_ENV", default_env))
     if environment not in manifest["environments"]:
         supported = ", ".join(manifest["environments"])
-        raise ValueError(
-            f"Unsupported CORAL_ENV '{environment}'. Expected one of: {supported}"
-        )
+        raise ValueError(f"Unsupported CORAL_ENV '{environment}'. Expected one of: {supported}")
     return environment
 
 
@@ -107,9 +95,7 @@ def _resolve_environment(environment: str | None) -> str:
     normalized = _normalize_environment(environment)
     if normalized not in manifest["environments"]:
         supported = ", ".join(manifest["environments"])
-        raise ValueError(
-            f"Unsupported environment '{normalized}'. Expected one of: {supported}"
-        )
+        raise ValueError(f"Unsupported environment '{normalized}'. Expected one of: {supported}")
     return normalized
 
 
@@ -129,9 +115,7 @@ def get_section_servers(section: str, environment: str | None = None) -> list[st
     section_key = section.strip().lower()
     if section_key not in manifest["sections"]:
         known_sections = ", ".join(sorted(manifest["sections"]))
-        raise ValueError(
-            f"Unknown section '{section}'. Expected one of: {known_sections}"
-        )
+        raise ValueError(f"Unknown section '{section}'. Expected one of: {known_sections}")
 
     env = _resolve_environment(environment)
 
@@ -178,12 +162,7 @@ def validate_configured_servers(
         joined = ", ".join(unknown)
         raise ValueError(f"Unapproved MCP servers in config: {joined}")
 
-    blocked = sorted(
-        name for name in configured
-        if env not in manifest["servers"][name]["environments"]
-    )
+    blocked = sorted(name for name in configured if env not in manifest["servers"][name]["environments"])
     if blocked:
         joined = ", ".join(blocked)
-        raise ValueError(
-            f"MCP servers not allowed in environment '{env}': {joined}"
-        )
+        raise ValueError(f"MCP servers not allowed in environment '{env}': {joined}")

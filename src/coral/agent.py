@@ -19,43 +19,61 @@ MAX_TOOL_ITERATIONS = 10
 # Keyword → MCP server prefix mapping for tool filtering.
 # Each entry: (keywords_in_query, tool_name_prefixes_to_include)
 _TOOL_ROUTES: list[tuple[list[str], list[str]]] = [
-    (["water level", "tide", "tidal", "datum", "station", "currents", "flood", "sea level"],
-     ["coops_"]),
-    (["hurricane", "tropical", "cyclone", "storm track", "nhc"],
-     ["nhc_"]),
-    (["surge", "stofs", "storm surge"],
-     ["stofs_", "coops_"]),
-    (["recon", "reconnaissance", "flight", "hunter", "hdob", "sfmr", "vdm"],
-     ["recon_"]),
-    (["satellite", "sst", "chlorophyll", "erddap", "ocean color"],
-     ["erddap_"]),
-    (["ofs", "forecast model", "operational forecast"],
-     ["ofs_"]),
-    (["adcirc", "fort.15", "fort.14", "fort.13", "fort.22", "adcirc parameter", "adcirc config"],
-     ["adcirc_"]),
-    (["goes", "satellite image", "satellite imagery", "infrared", "visible image", "goes-16", "goes-18", "goes-east", "goes-west"],
-     ["goes_"]),
-    (["schism", "param.nml", "hgrid", "vgrid", "bctides", "schism parameter", "schism config"],
-     ["schism_"]),
-    (["usgs", "streamflow", "discharge", "river", "gage", "gauge", "flood status", "hydrograph", "stream"],
-     ["usgs_"]),
-    (["wind speed", "wind observation", "winds", "gust", "anemometer", "weather station", "metar"],
-     ["winds_"]),
-    (["wave", "ww3", "wavewatch", "buoy", "swell", "significant wave", "wave height", "wave period"],
-     ["ww3_"]),
-    (["compare", "vs", "versus", "observation"],
-     ["coops_", "stofs_", "ofs_", "usgs_"]),
-    (["documentation", "source code", "subroutine", "function", "module", "namelist",
-      "ufs", "fortran", "what does", "how does", "explain"],
-     ["search_documentation"]),
-    (["netcdf", ".nc", "inspect", "variable", "dimensions", "xarray"],
-     ["inspect_netcdf", "query_netcdf", "get_netcdf_timeseries"]),
-    (["slurm", "job", "sbatch", "squeue", "sacct", "failed job", "job log"],
-     ["get_my_jobs", "get_job_details", "read_job_log", "diagnose_job_failure"]),
-    (["ecflow", "suite", "aborted", "task status", "ecf"],
-     ["get_suite_status", "get_aborted_tasks", "read_ecflow_job_output"]),
-    (["plot", "figure", "visuali", "matplotlib", "execute python", "run python", "script", "code"],
-     ["execute_python"]),
+    (["water level", "tide", "tidal", "datum", "station", "currents", "flood", "sea level"], ["coops_"]),
+    (["hurricane", "tropical", "cyclone", "storm track", "nhc"], ["nhc_"]),
+    (["surge", "stofs", "storm surge"], ["stofs_", "coops_"]),
+    (["recon", "reconnaissance", "flight", "hunter", "hdob", "sfmr", "vdm"], ["recon_"]),
+    (["satellite", "sst", "chlorophyll", "erddap", "ocean color"], ["erddap_"]),
+    (["ofs", "forecast model", "operational forecast"], ["ofs_"]),
+    (["adcirc", "fort.15", "fort.14", "fort.13", "fort.22", "adcirc parameter", "adcirc config"], ["adcirc_"]),
+    (
+        [
+            "goes",
+            "satellite image",
+            "satellite imagery",
+            "infrared",
+            "visible image",
+            "goes-16",
+            "goes-18",
+            "goes-east",
+            "goes-west",
+        ],
+        ["goes_"],
+    ),
+    (["schism", "param.nml", "hgrid", "vgrid", "bctides", "schism parameter", "schism config"], ["schism_"]),
+    (["usgs", "streamflow", "discharge", "river", "gage", "gauge", "flood status", "hydrograph", "stream"], ["usgs_"]),
+    (["wind speed", "wind observation", "winds", "gust", "anemometer", "weather station", "metar"], ["winds_"]),
+    (["wave", "ww3", "wavewatch", "buoy", "swell", "significant wave", "wave height", "wave period"], ["ww3_"]),
+    (["compare", "vs", "versus", "observation"], ["coops_", "stofs_", "ofs_", "usgs_"]),
+    (
+        [
+            "documentation",
+            "source code",
+            "subroutine",
+            "function",
+            "module",
+            "namelist",
+            "ufs",
+            "fortran",
+            "what does",
+            "how does",
+            "explain",
+        ],
+        ["search_documentation"],
+    ),
+    (
+        ["netcdf", ".nc", "inspect", "variable", "dimensions", "xarray"],
+        ["inspect_netcdf", "query_netcdf", "get_netcdf_timeseries"],
+    ),
+    (
+        ["slurm", "job", "sbatch", "squeue", "sacct", "failed job", "job log"],
+        ["get_my_jobs", "get_job_details", "read_job_log", "diagnose_job_failure"],
+    ),
+    (
+        ["ecflow", "suite", "aborted", "task status", "ecf"],
+        ["get_suite_status", "get_aborted_tasks", "read_ecflow_job_output"],
+    ),
+    (["plot", "figure", "visuali", "matplotlib", "execute python", "run python", "script", "code"], ["execute_python"]),
 ]
 
 
@@ -76,10 +94,7 @@ def _select_tools(query: str, all_tools: list[dict]) -> list[dict]:
     if not prefixes:
         return all_tools
 
-    filtered = [
-        t for t in all_tools
-        if any(t["function"]["name"].startswith(p) for p in prefixes)
-    ]
+    filtered = [t for t in all_tools if any(t["function"]["name"].startswith(p) for p in prefixes)]
     return filtered if filtered else all_tools
 
 
@@ -119,19 +134,21 @@ class CoralAgent:
                 iteration = 0
                 while response.message.tool_calls and iteration < MAX_TOOL_ITERATIONS:
                     # Append the assistant message with tool calls
-                    self.history.append({
-                        "role": "assistant",
-                        "content": response.message.content or "",
-                        "tool_calls": [
-                            {
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments,
+                    self.history.append(
+                        {
+                            "role": "assistant",
+                            "content": response.message.content or "",
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments,
+                                    }
                                 }
-                            }
-                            for tc in response.message.tool_calls
-                        ],
-                    })
+                                for tc in response.message.tool_calls
+                            ],
+                        }
+                    )
 
                     # Execute each tool call
                     for tool_call in response.message.tool_calls:
@@ -161,10 +178,12 @@ class CoralAgent:
                             else:
                                 result_str = result_str[:4000] + "\n\n... [truncated] ...\n\n" + result_str[-3000:]
 
-                        self.history.append({
-                            "role": "tool",
-                            "content": result_str,
-                        })
+                        self.history.append(
+                            {
+                                "role": "tool",
+                                "content": result_str,
+                            }
+                        )
 
                     # Subsequent rounds use all tools (the model may need to cross-reference)
                     messages = [{"role": "system", "content": CORAL_SYSTEM_PROMPT}] + self.history

@@ -36,9 +36,11 @@ class TestHistoryPruning:
 
     def test_estimate_includes_tool_call_args(self):
         history = [
-            {"role": "assistant", "content": "", "tool_calls": [
-                {"function": {"name": "t", "arguments": {"key": "value"}}}
-            ]},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"function": {"name": "t", "arguments": {"key": "value"}}}],
+            },
         ]
         assert _estimate_history_chars(history) > 0
 
@@ -91,9 +93,7 @@ class TestBaseAgent:
     @pytest.fixture
     def mock_bridge(self):
         bridge = MagicMock()
-        bridge.tools = [
-            {"type": "function", "function": {"name": "test_tool", "description": "", "parameters": {}}}
-        ]
+        bridge.tools = [{"type": "function", "function": {"name": "test_tool", "description": "", "parameters": {}}}]
         bridge.tool_server_map = {"test_tool": "test_server"}
         bridge.call_tool = AsyncMock(return_value="tool result")
         return bridge
@@ -139,7 +139,10 @@ class TestBaseAgent:
     async def test_on_tool_call_callback(self, mock_bridge):
         calls = []
         agent = BaseAgent(
-            "test", "model", "prompt", mock_bridge,
+            "test",
+            "model",
+            "prompt",
+            mock_bridge,
             tool_filter=["test_server"],
             on_tool_call=lambda name, args, result: calls.append((name, args, result)),
         )

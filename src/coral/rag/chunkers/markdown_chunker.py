@@ -14,19 +14,20 @@ class MarkdownChunker:
         for line in content.split("\n"):
             # Markdown header or RST underline-style header
             if line.startswith("#") or (
-                len(line) > 2 and set(line.strip()) <= {"=", "-", "~", "^"}
-                and current_text.strip()
+                len(line) > 2 and set(line.strip()) <= {"=", "-", "~", "^"} and current_text.strip()
             ):
                 if current_text.strip():
                     for sub in self._split_large(current_text.strip(), max_chunk):
-                        chunks.append({
-                            "text": sub,
-                            "metadata": {
-                                "file_path": file_path,
-                                "section": current_section,
-                                "type": "markdown",
-                            },
-                        })
+                        chunks.append(
+                            {
+                                "text": sub,
+                                "metadata": {
+                                    "file_path": file_path,
+                                    "section": current_section,
+                                    "type": "markdown",
+                                },
+                            }
+                        )
                 if line.startswith("#"):
                     current_section = line.lstrip("# ").strip()
                 current_text = line + "\n"
@@ -35,14 +36,16 @@ class MarkdownChunker:
 
         if current_text.strip():
             for sub in self._split_large(current_text.strip(), max_chunk):
-                chunks.append({
-                    "text": sub,
-                    "metadata": {
-                        "file_path": file_path,
-                        "section": current_section,
-                        "type": "markdown",
-                    },
-                })
+                chunks.append(
+                    {
+                        "text": sub,
+                        "metadata": {
+                            "file_path": file_path,
+                            "section": current_section,
+                            "type": "markdown",
+                        },
+                    }
+                )
 
         return chunks
 

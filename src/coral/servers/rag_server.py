@@ -15,6 +15,7 @@ def _get_retriever():
     global _retriever
     if _retriever is None:
         from coral.rag.retriever import CoralRetriever
+
         db_path = os.environ.get("CORAL_VECTORDB", "~/.coral/vectordb")
         _retriever = CoralRetriever(db_path=db_path)
     return _retriever

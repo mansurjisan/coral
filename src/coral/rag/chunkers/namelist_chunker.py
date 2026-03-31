@@ -17,21 +17,25 @@ class NamelistChunker:
                 for key, value in group_data.items():
                     text += f"  {key} = {value}\n"
                 text += "/"
-                chunks.append({
-                    "text": text,
-                    "metadata": {
-                        "file_path": file_path,
-                        "namelist_group": group_name,
-                        "type": "namelist",
-                    },
-                })
+                chunks.append(
+                    {
+                        "text": text,
+                        "metadata": {
+                            "file_path": file_path,
+                            "namelist_group": group_name,
+                            "type": "namelist",
+                        },
+                    }
+                )
         except Exception:
             pass
 
         # Fall back to plain text if no groups were parsed
         if not chunks and content.strip():
-            chunks.append({
-                "text": content,
-                "metadata": {"file_path": file_path, "type": "namelist"},
-            })
+            chunks.append(
+                {
+                    "text": content,
+                    "metadata": {"file_path": file_path, "type": "namelist"},
+                }
+            )
         return chunks

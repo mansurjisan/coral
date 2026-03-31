@@ -1,6 +1,5 @@
 """Regression tests for CLI slash commands and operational features."""
 
-import json
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +9,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # /watch validation
 # ---------------------------------------------------------------------------
+
 
 class TestWatchValidation:
     """Test /watch job ID acceptance."""
@@ -34,6 +34,7 @@ class TestWatchValidation:
 # ---------------------------------------------------------------------------
 # /branch
 # ---------------------------------------------------------------------------
+
 
 class TestBranch:
     """Test conversation branching."""
@@ -85,11 +86,13 @@ class TestBranch:
 # /status scheduler detection
 # ---------------------------------------------------------------------------
 
+
 class TestStatusSchedulerDetection:
     """Test that /status detects the right scheduler."""
 
     def test_prefers_slurm_when_available(self):
         import shutil
+
         # This test verifies the logic, not actual command execution
         with patch("shutil.which") as mock_which:
             mock_which.side_effect = lambda cmd: "/usr/bin/squeue" if cmd == "squeue" else None
@@ -97,6 +100,7 @@ class TestStatusSchedulerDetection:
 
     def test_falls_back_to_pbs(self):
         import shutil
+
         with patch("shutil.which") as mock_which:
             mock_which.side_effect = lambda cmd: "/usr/bin/qstat" if cmd == "qstat" else None
             assert shutil.which("squeue") is None
@@ -106,6 +110,7 @@ class TestStatusSchedulerDetection:
 # ---------------------------------------------------------------------------
 # /alert input validation
 # ---------------------------------------------------------------------------
+
 
 class TestAlertValidation:
     """Test alert input parsing."""
@@ -130,11 +135,12 @@ class TestAlertValidation:
 # Session save/load
 # ---------------------------------------------------------------------------
 
+
 class TestSessionPersistence:
     """Test session save and load."""
 
     def test_save_and_load(self, tmp_path):
-        from coral.cli import _save_session, _load_session, _session_file
+        from coral.cli import _save_session, _load_session
 
         chat_log = [
             {"role": "user", "content": "What is SCHISM?"},
@@ -171,6 +177,7 @@ class TestSessionPersistence:
 # /audit
 # ---------------------------------------------------------------------------
 
+
 class TestAudit:
     """Test audit log display."""
 
@@ -186,12 +193,14 @@ class TestAudit:
         from coral.cli import _show_audit, _audit_log
 
         _audit_log.clear()
-        _audit_log.append({
-            "tool": "hpc_disk_quota",
-            "args": "{}",
-            "time": "14:30:00",
-            "result_len": 500,
-        })
+        _audit_log.append(
+            {
+                "tool": "hpc_disk_quota",
+                "args": "{}",
+                "time": "14:30:00",
+                "result_len": 500,
+            }
+        )
 
         console = MagicMock()
         _show_audit(console)
@@ -203,6 +212,7 @@ class TestAudit:
 # ---------------------------------------------------------------------------
 # Graceful degradation
 # ---------------------------------------------------------------------------
+
 
 class TestAlertMCP:
     """Test the MCP-mediated /alert flow."""
@@ -220,11 +230,14 @@ class TestAlertMCP:
 
         await _set_alert_via_mcp("8518750 > 1.5", agent, console)
 
-        bridge.call_tool.assert_called_once_with("coral_create_alert", {
-            "station_id": "8518750",
-            "operator": ">",
-            "threshold": 1.5,
-        })
+        bridge.call_tool.assert_called_once_with(
+            "coral_create_alert",
+            {
+                "station_id": "8518750",
+                "operator": ">",
+                "threshold": 1.5,
+            },
+        )
 
     @pytest.mark.asyncio
     async def test_alert_list_subcommand(self):

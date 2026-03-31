@@ -61,10 +61,7 @@ class MCPBridge:
                     self._plugin_names.add(name)
 
         # Validate only non-plugin servers against the policy manifest
-        core_servers = [
-            s for s in self.config.get("mcpServers", {}).keys()
-            if s not in self._plugin_names
-        ]
+        core_servers = [s for s in self.config.get("mcpServers", {}).keys() if s not in self._plugin_names]
         validate_configured_servers(core_servers)
         self.sessions: dict[str, ClientSession] = {}
         self.tools: list[dict] = []  # Ollama-format tool definitions
@@ -97,19 +94,20 @@ class MCPBridge:
                 )
             if tool.name in pending_names:
                 raise ValueError(
-                    f"Duplicate tool name '{tool.name}' discovered multiple times from "
-                    f"server '{server_name}'"
+                    f"Duplicate tool name '{tool.name}' discovered multiple times from server '{server_name}'"
                 )
 
             pending_names.add(tool.name)
-            pending_tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "parameters": tool.inputSchema,
-                },
-            })
+            pending_tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "parameters": tool.inputSchema,
+                    },
+                }
+            )
 
         self.tools.extend(pending_tools)
         for tool in tools:
@@ -128,13 +126,9 @@ class MCPBridge:
         stack = AsyncExitStack()
 
         try:
-            stdio_transport = await stack.enter_async_context(
-                stdio_client(params)
-            )
+            stdio_transport = await stack.enter_async_context(stdio_client(params))
             read_stream, write_stream = stdio_transport
-            session = await stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
             await session.initialize()
         except Exception:
             # Clean up the stack immediately on failure to avoid

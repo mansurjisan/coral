@@ -35,9 +35,11 @@ class TestBridgeAudit:
         bridge.tool_map["coops_get_water_levels"] = (mock_session, "coops")
         bridge.tool_server_map["coops_get_water_levels"] = "coops"
 
-        with request_context(query_id="query-123", route=["DATA"], mode="multi"), \
-             section_context("data"), \
-             patch("coral.mcp_bridge.record_audit_event") as mock_record:
+        with (
+            request_context(query_id="query-123", route=["DATA"], mode="multi"),
+            section_context("data"),
+            patch("coral.mcp_bridge.record_audit_event") as mock_record,
+        ):
             result = await bridge.call_tool("coops_get_water_levels", {"station": "8518750"})
 
         assert result == "result data"
@@ -67,9 +69,11 @@ class TestBridgeAudit:
         bridge.tool_map["execute_python"] = (mock_session, "viz")
         bridge.tool_server_map["execute_python"] = "viz"
 
-        with request_context(query_id="query-456", route=["CODE"], mode="multi"), \
-             section_context("code"), \
-             patch("coral.mcp_bridge.record_audit_event") as mock_record:
+        with (
+            request_context(query_id="query-456", route=["CODE"], mode="multi"),
+            section_context("code"),
+            patch("coral.mcp_bridge.record_audit_event") as mock_record,
+        ):
             result = await bridge.call_tool("execute_python", {"code": "print(1)"})
 
         assert result == "plot ready"
@@ -111,17 +115,16 @@ class TestAgentAuditIntegration:
         text_response.message.tool_calls = None
         text_response.message.content = "Water level is 0.5m."
 
-        with patch("coral.agents.base.ollama") as mock_ollama, \
-             patch("coral.mcp_bridge.record_audit_event") as mock_record:
+        with (
+            patch("coral.agents.base.ollama") as mock_ollama,
+            patch("coral.mcp_bridge.record_audit_event") as mock_record,
+        ):
             mock_ollama.chat.side_effect = [tool_response, text_response]
             result = await orch.chat("What is the water level at Newport?")
 
         assert "0.5m" in result
 
-        tool_events = [
-            call for call in mock_record.call_args_list
-            if call.args and call.args[0] == "tool_call"
-        ]
+        tool_events = [call for call in mock_record.call_args_list if call.args and call.args[0] == "tool_call"]
         assert len(tool_events) == 1
 
         fields = tool_events[0].kwargs
@@ -160,15 +163,11 @@ class TestAgentAuditIntegration:
         text_response.message.tool_calls = None
         text_response.message.content = "Answer"
 
-        with patch("coral.agent.ollama") as mock_ollama, \
-             patch("coral.mcp_bridge.record_audit_event") as mock_record:
+        with patch("coral.agent.ollama") as mock_ollama, patch("coral.mcp_bridge.record_audit_event") as mock_record:
             mock_ollama.chat.side_effect = [tool_response, text_response]
             result = await agent.chat("What does schism_init do?")
 
         assert result == "Answer"
-        tool_events = [
-            call for call in mock_record.call_args_list
-            if call.args and call.args[0] == "tool_call"
-        ]
+        tool_events = [call for call in mock_record.call_args_list if call.args and call.args[0] == "tool_call"]
         assert len(tool_events) == 1
         assert tool_events[0].kwargs["server"] == "rag"

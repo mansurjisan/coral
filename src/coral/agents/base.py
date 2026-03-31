@@ -32,7 +32,7 @@ def _ollama_chat_with_retry(*, model, messages, tools=None, max_retries=MAX_LLM_
             # Only retry on connection/timeout errors, not model errors
             if "connect" in err_str or "timeout" in err_str or "refused" in err_str:
                 if attempt < max_retries:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     logger.warning("Ollama error (attempt %d), retrying in %ds: %s", attempt + 1, wait, e)
                     _time.sleep(wait)
                     continue
@@ -94,8 +94,12 @@ def _extract_stats(response) -> dict:
             stats["tokens"] = int(eval_count)
         if isinstance(prompt_eval_count, (int, float)) and prompt_eval_count > 0:
             stats["prompt_tokens"] = int(prompt_eval_count)
-        if (isinstance(eval_duration, (int, float)) and eval_duration > 0
-                and isinstance(eval_count, (int, float)) and eval_count > 0):
+        if (
+            isinstance(eval_duration, (int, float))
+            and eval_duration > 0
+            and isinstance(eval_count, (int, float))
+            and eval_count > 0
+        ):
             secs = eval_duration / 1e9
             if secs > 0:
                 stats["tokens_per_sec"] = round(eval_count / secs, 1)
@@ -133,7 +137,8 @@ class BaseAgent:
         if self.tool_filter is None:
             return self.mcp_bridge.tools
         return [
-            t for t in self.mcp_bridge.tools
+            t
+            for t in self.mcp_bridge.tools
             if self.mcp_bridge.tool_server_map.get(t["function"]["name"]) in self.tool_filter
         ]
 
@@ -154,19 +159,21 @@ class BaseAgent:
 
             iteration = 0
             while response.message.tool_calls and iteration < MAX_TOOL_ITERATIONS:
-                self.history.append({
-                    "role": "assistant",
-                    "content": response.message.content or "",
-                    "tool_calls": [
-                        {
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
+                self.history.append(
+                    {
+                        "role": "assistant",
+                        "content": response.message.content or "",
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
                             }
-                        }
-                        for tc in response.message.tool_calls
-                    ],
-                })
+                            for tc in response.message.tool_calls
+                        ],
+                    }
+                )
 
                 for tool_call in response.message.tool_calls:
                     tool_name = tool_call.function.name
@@ -222,19 +229,21 @@ class BaseAgent:
 
             iteration = 0
             while response.message.tool_calls and iteration < MAX_TOOL_ITERATIONS:
-                self.history.append({
-                    "role": "assistant",
-                    "content": response.message.content or "",
-                    "tool_calls": [
-                        {
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
+                self.history.append(
+                    {
+                        "role": "assistant",
+                        "content": response.message.content or "",
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
                             }
-                        }
-                        for tc in response.message.tool_calls
-                    ],
-                })
+                            for tc in response.message.tool_calls
+                        ],
+                    }
+                )
 
                 for tool_call in response.message.tool_calls:
                     tool_name = tool_call.function.name

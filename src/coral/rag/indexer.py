@@ -29,23 +29,24 @@ _ECFLOW_EXTS = {".def", ".ecf"}
 _TEXT_EXTS = {".md", ".rst", ".txt", ".yaml", ".yml", ".py", ".sh", ".json", ".cfg", ".conf"}
 
 ALL_EXTENSIONS = (
-    list(_FORTRAN_EXTS) + list(_C_EXTS) + list(_NAMELIST_EXTS)
-    + list(_ECFLOW_EXTS) + list(_TEXT_EXTS) + [".pdf"]
+    list(_FORTRAN_EXTS) + list(_C_EXTS) + list(_NAMELIST_EXTS) + list(_ECFLOW_EXTS) + list(_TEXT_EXTS) + [".pdf"]
 )
 
 # LanceDB schema
-_SCHEMA = pa.schema([
-    pa.field("text", pa.utf8()),
-    pa.field("vector", pa.list_(pa.float32(), 768)),
-    pa.field("file_path", pa.utf8()),
-    pa.field("start_line", pa.int32()),
-    pa.field("node_type", pa.utf8()),
-    pa.field("name", pa.utf8()),
-    pa.field("language", pa.utf8()),
-    pa.field("section", pa.utf8()),
-    pa.field("namelist_group", pa.utf8()),
-    pa.field("type", pa.utf8()),
-])
+_SCHEMA = pa.schema(
+    [
+        pa.field("text", pa.utf8()),
+        pa.field("vector", pa.list_(pa.float32(), 768)),
+        pa.field("file_path", pa.utf8()),
+        pa.field("start_line", pa.int32()),
+        pa.field("node_type", pa.utf8()),
+        pa.field("name", pa.utf8()),
+        pa.field("language", pa.utf8()),
+        pa.field("section", pa.utf8()),
+        pa.field("namelist_group", pa.utf8()),
+        pa.field("type", pa.utf8()),
+    ]
+)
 
 
 class CoralIndexer:
@@ -66,7 +67,7 @@ class CoralIndexer:
         results = []
         batch_size = 32
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             resp = ollama.embed(model=EMBED_MODEL, input=batch)
             results.extend(resp["embeddings"])
         return results
@@ -109,18 +110,20 @@ class CoralIndexer:
         records = []
         for chunk, embedding in zip(chunks, embeddings):
             meta = chunk.get("metadata", {})
-            records.append({
-                "text": chunk["text"],
-                "vector": embedding,
-                "file_path": meta.get("file_path", file_path),
-                "start_line": meta.get("start_line", 0),
-                "node_type": meta.get("node_type", ""),
-                "name": meta.get("name", ""),
-                "language": meta.get("language", ""),
-                "section": meta.get("section", ""),
-                "namelist_group": meta.get("namelist_group", ""),
-                "type": meta.get("type", ""),
-            })
+            records.append(
+                {
+                    "text": chunk["text"],
+                    "vector": embedding,
+                    "file_path": meta.get("file_path", file_path),
+                    "start_line": meta.get("start_line", 0),
+                    "node_type": meta.get("node_type", ""),
+                    "name": meta.get("name", ""),
+                    "language": meta.get("language", ""),
+                    "section": meta.get("section", ""),
+                    "namelist_group": meta.get("namelist_group", ""),
+                    "type": meta.get("type", ""),
+                }
+            )
 
         if TABLE_NAME in self.db.table_names():
             table = self.db.open_table(TABLE_NAME)

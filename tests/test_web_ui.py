@@ -64,6 +64,7 @@ class TestRespond:
         agents_created = []
 
         with patch("coral.web_ui.CoralAgent") as MockAgent:
+
             def make_agent(**kwargs):
                 agent = MagicMock()
                 agent.chat = AsyncMock(return_value="reply")

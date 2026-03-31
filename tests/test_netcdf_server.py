@@ -83,18 +83,14 @@ class TestGetNetcdfTimeseries:
         assert len(records) == 24
 
     def test_record_structure(self):
-        records = json.loads(
-            get_netcdf_timeseries(NC_PATH, "zeta", lat=40.0, lon=-74.0)
-        )
+        records = json.loads(get_netcdf_timeseries(NC_PATH, "zeta", lat=40.0, lon=-74.0))
         for r in records:
             assert "time" in r
             assert "value" in r
             assert isinstance(r["value"], float)
 
     def test_different_variable(self):
-        records = json.loads(
-            get_netcdf_timeseries(NC_PATH, "temp", lat=39.0, lon=-75.0)
-        )
+        records = json.loads(get_netcdf_timeseries(NC_PATH, "temp", lat=39.0, lon=-75.0))
         assert len(records) == 24
         # Temp values should be in reasonable range
         for r in records:

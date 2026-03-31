@@ -1,14 +1,12 @@
 """Tests for PBS MCP server tools."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from coral.servers.pbs_server import (
     _validate_pbs_job_id,
     pbs_get_my_jobs,
     pbs_get_job_details,
-    pbs_read_job_log,
     pbs_diagnose_job_failure,
     pbs_get_queue_status,
 )
@@ -36,8 +34,7 @@ class TestGetMyJobs:
     @patch("coral.servers.pbs_server._run")
     def test_returns_output(self, mock_run):
         mock_run.return_value = (
-            "Job ID     Username  Queue  Jobname  SessID NDS TSK\n"
-            "12345.svc  testuser  workq  my_job   1234    4  96\n"
+            "Job ID     Username  Queue  Jobname  SessID NDS TSK\n12345.svc  testuser  workq  my_job   1234    4  96\n"
         )
         result = pbs_get_my_jobs()
         assert "12345.svc" in result

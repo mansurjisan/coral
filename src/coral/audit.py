@@ -115,7 +115,7 @@ def split_tool_audit_payload(result: str) -> tuple[dict, str]:
 
     first_line, separator, remainder = result.partition("\n")
     try:
-        payload = json.loads(first_line[len(_AUDIT_PREFIX):])
+        payload = json.loads(first_line[len(_AUDIT_PREFIX) :])
     except json.JSONDecodeError:
         return {}, result
 

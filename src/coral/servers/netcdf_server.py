@@ -99,9 +99,7 @@ def query_netcdf(
 
 
 @mcp.tool()
-def get_netcdf_timeseries(
-    file_path: str, variable: str, lat: float, lon: float
-) -> str:
+def get_netcdf_timeseries(file_path: str, variable: str, lat: float, lon: float) -> str:
     """Extract a full time series of a variable at a given lat/lon from a NetCDF file.
 
     Returns JSON array of {time, value} pairs.

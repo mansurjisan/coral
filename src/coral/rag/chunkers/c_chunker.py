@@ -43,18 +43,20 @@ class CChunker:
                         break
                     j += 1
 
-                text = "\n".join(lines[start:j + 1])
-                chunks.append({
-                    "text": text,
-                    "metadata": {
-                        "file_path": file_path,
-                        "node_type": "function",
-                        "name": func_name,
-                        "start_line": start + 1,
-                        "end_line": j + 1,
-                        "language": "c",
-                    },
-                })
+                text = "\n".join(lines[start : j + 1])
+                chunks.append(
+                    {
+                        "text": text,
+                        "metadata": {
+                            "file_path": file_path,
+                            "node_type": "function",
+                            "name": func_name,
+                            "start_line": start + 1,
+                            "end_line": j + 1,
+                            "language": "c",
+                        },
+                    }
+                )
                 i = j + 1
             else:
                 i += 1
@@ -64,9 +66,7 @@ class CChunker:
 
         return chunks
 
-    def _fallback_chunk(
-        self, source_code: str, file_path: str, chunk_size: int = 1500
-    ) -> list[dict]:
+    def _fallback_chunk(self, source_code: str, file_path: str, chunk_size: int = 1500) -> list[dict]:
         lines = source_code.split("\n")
         chunks = []
         current: list[str] = []
@@ -77,27 +77,31 @@ class CChunker:
             current.append(line)
             current_len += len(line) + 1
             if current_len >= chunk_size:
-                chunks.append({
-                    "text": "\n".join(current),
-                    "metadata": {
-                        "file_path": file_path,
-                        "start_line": start_line + 1,
-                        "language": "c",
-                    },
-                })
+                chunks.append(
+                    {
+                        "text": "\n".join(current),
+                        "metadata": {
+                            "file_path": file_path,
+                            "start_line": start_line + 1,
+                            "language": "c",
+                        },
+                    }
+                )
                 overlap = current[-3:]
                 current = overlap
                 current_len = sum(len(ln) + 1 for ln in current)
                 start_line = i - len(overlap) + 1
 
         if current:
-            chunks.append({
-                "text": "\n".join(current),
-                "metadata": {
-                    "file_path": file_path,
-                    "start_line": start_line + 1,
-                    "language": "c",
-                },
-            })
+            chunks.append(
+                {
+                    "text": "\n".join(current),
+                    "metadata": {
+                        "file_path": file_path,
+                        "start_line": start_line + 1,
+                        "language": "c",
+                    },
+                }
+            )
 
         return chunks

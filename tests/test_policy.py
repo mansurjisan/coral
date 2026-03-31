@@ -31,11 +31,30 @@ class TestPolicyManifest:
 
     def test_get_section_servers_returns_authorized_servers(self):
         assert get_section_servers("data") == [
-            "coops", "nhc", "stofs", "recon", "erddap", "ofs",
-            "adcirc", "goes", "schism", "usgs", "winds", "ww3", "netcdf",
+            "coops",
+            "nhc",
+            "stofs",
+            "recon",
+            "erddap",
+            "ofs",
+            "adcirc",
+            "goes",
+            "schism",
+            "usgs",
+            "winds",
+            "ww3",
+            "netcdf",
         ]
         assert get_section_servers("code") == ["rag", "viz"]
-        assert get_section_servers("workflow") == ["slurm", "ecflow", "pbs", "ufs_runner", "hpc_system", "nos_workflow", "alerts"]
+        assert get_section_servers("workflow") == [
+            "slurm",
+            "ecflow",
+            "pbs",
+            "ufs_runner",
+            "hpc_system",
+            "nos_workflow",
+            "alerts",
+        ]
 
     def test_unknown_section_raises(self):
         with pytest.raises(ValueError, match="Unknown section"):

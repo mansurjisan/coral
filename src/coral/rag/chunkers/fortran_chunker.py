@@ -33,37 +33,39 @@ class FortranChunker:
             # Check for unit start
             m_start = _UNIT_START.match(line)
             if m_start:
-                stack.append({
-                    "type": m_start.group(1).lower(),
-                    "name": m_start.group(2),
-                    "start": i,
-                })
+                stack.append(
+                    {
+                        "type": m_start.group(1).lower(),
+                        "name": m_start.group(2),
+                        "start": i,
+                    }
+                )
 
             # Check for unit end
             m_end = _UNIT_END.match(line)
             if m_end and stack:
                 unit = stack.pop()
-                text = "\n".join(lines[unit["start"]:i + 1])
-                chunks.append({
-                    "text": text,
-                    "metadata": {
-                        "file_path": file_path,
-                        "node_type": unit["type"],
-                        "name": unit["name"],
-                        "start_line": unit["start"] + 1,
-                        "end_line": i + 1,
-                        "language": "fortran",
-                    },
-                })
+                text = "\n".join(lines[unit["start"] : i + 1])
+                chunks.append(
+                    {
+                        "text": text,
+                        "metadata": {
+                            "file_path": file_path,
+                            "node_type": unit["type"],
+                            "name": unit["name"],
+                            "start_line": unit["start"] + 1,
+                            "end_line": i + 1,
+                            "language": "fortran",
+                        },
+                    }
+                )
 
         if not chunks:
             chunks = self._fallback_chunk(source_code, file_path)
 
         return chunks
 
-    def _fallback_chunk(
-        self, source_code: str, file_path: str, chunk_size: int = 1500
-    ) -> list[dict]:
+    def _fallback_chunk(self, source_code: str, file_path: str, chunk_size: int = 1500) -> list[dict]:
         lines = source_code.split("\n")
         chunks = []
         current: list[str] = []
@@ -74,14 +76,16 @@ class FortranChunker:
             current.append(line)
             current_len += len(line) + 1
             if current_len >= chunk_size:
-                chunks.append({
-                    "text": "\n".join(current),
-                    "metadata": {
-                        "file_path": file_path,
-                        "start_line": start_line + 1,
-                        "language": "fortran",
-                    },
-                })
+                chunks.append(
+                    {
+                        "text": "\n".join(current),
+                        "metadata": {
+                            "file_path": file_path,
+                            "start_line": start_line + 1,
+                            "language": "fortran",
+                        },
+                    }
+                )
                 # Keep last 3 lines as overlap
                 overlap = current[-3:]
                 current = overlap
@@ -89,13 +93,15 @@ class FortranChunker:
                 start_line = i - len(overlap) + 1
 
         if current:
-            chunks.append({
-                "text": "\n".join(current),
-                "metadata": {
-                    "file_path": file_path,
-                    "start_line": start_line + 1,
-                    "language": "fortran",
-                },
-            })
+            chunks.append(
+                {
+                    "text": "\n".join(current),
+                    "metadata": {
+                        "file_path": file_path,
+                        "start_line": start_line + 1,
+                        "language": "fortran",
+                    },
+                }
+            )
 
         return chunks

@@ -127,7 +127,10 @@ class TestCoralAgent:
     def mock_bridge(self):
         bridge = MagicMock()
         bridge.tools = [
-            {"type": "function", "function": {"name": "coops_get_water_levels", "description": "Get water levels", "parameters": {}}}
+            {
+                "type": "function",
+                "function": {"name": "coops_get_water_levels", "description": "Get water levels", "parameters": {}},
+            }
         ]
         bridge.call_tool = AsyncMock(return_value="Water level: 0.5m MLLW")
         return bridge
@@ -190,7 +193,8 @@ class TestCoralAgent:
         with patch("coral.agent.ollama") as mock_ollama:
             mock_ollama.chat.side_effect = [tool_response, text_response]
             agent = CoralAgent(
-                model="test", mcp_bridge=mock_bridge,
+                model="test",
+                mcp_bridge=mock_bridge,
                 on_tool_call=lambda name, args, result: callback_calls.append((name, args, result)),
             )
             await agent.chat("Water level?")

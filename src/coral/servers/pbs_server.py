@@ -67,8 +67,8 @@ def pbs_get_my_jobs(state: str = "all") -> str:
         marker = state_map.get(state, "")
         if marker:
             lines = output.split("\n")
-            header = [l for l in lines[:5] if "---" in l or "Job" in l or l.strip() == ""]
-            filtered = [l for l in lines if marker in l]
+            header = [line for line in lines[:5] if "---" in line or "Job" in line or line.strip() == ""]
+            filtered = [line for line in lines if marker in line]
             return "\n".join(header + filtered) if filtered else f"No {state} jobs found."
 
     return output

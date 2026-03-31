@@ -1,8 +1,6 @@
 """Tests for CORAL persistent memory."""
 
-import json
 import pytest
-from pathlib import Path
 
 from coral.memory import CoralMemory
 

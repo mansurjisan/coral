@@ -16,14 +16,7 @@ class TestEcflowChunker:
         assert "sbatch" in chunks[0]["text"]
 
     def test_family_with_tasks(self):
-        content = (
-            "family forecast\n"
-            "  task prep_data\n"
-            "  endtask\n"
-            "  task run_model\n"
-            "  endtask\n"
-            "endfamily"
-        )
+        content = "family forecast\n  task prep_data\n  endtask\n  task run_model\n  endtask\nendfamily"
         chunks = self.chunker.chunk(content, "suite.def")
         # Should get family start, two tasks, and family end
         assert len(chunks) >= 2
@@ -65,14 +58,7 @@ class TestEcflowChunker:
 
     def test_multiple_families(self):
         content = (
-            "family prep\n"
-            "  task fetch_data\n"
-            "  endtask\n"
-            "endfamily\n"
-            "family run\n"
-            "  task execute\n"
-            "  endtask\n"
-            "endfamily"
+            "family prep\n  task fetch_data\n  endtask\nendfamily\nfamily run\n  task execute\n  endtask\nendfamily"
         )
         chunks = self.chunker.chunk(content, "multi.def")
         names = [c["metadata"].get("name", "") for c in chunks]

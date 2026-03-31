@@ -37,6 +37,7 @@ def _plot_dir() -> str:
         return scratch
     return tempfile.gettempdir()
 
+
 def _sandbox_candidates() -> list[str]:
     """Return candidate sandbox image paths in priority order."""
     configured = os.environ.get("CORAL_SANDBOX_SIF", "")
@@ -44,10 +45,12 @@ def _sandbox_candidates() -> list[str]:
     if configured:
         candidates.append(configured)
 
-    candidates.extend([
-        os.path.join(os.path.dirname(__file__), "..", "..", "..", "containers", "coral_sandbox.sif"),
-        f"/scratch5/purged/{os.environ.get('USER', '')}/coral_sandbox.sif",
-    ])
+    candidates.extend(
+        [
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "containers", "coral_sandbox.sif"),
+            f"/scratch5/purged/{os.environ.get('USER', '')}/coral_sandbox.sif",
+        ]
+    )
     return candidates
 
 
@@ -90,25 +93,33 @@ def _build_execution_command(script_path: str) -> tuple[list[str] | None, str | 
     apptainer = shutil.which("apptainer")
 
     if sandbox_sif and apptainer:
-        return [
-            apptainer,
-            "exec",
-            "--nv",
-            "--bind",
-            "/tmp:/tmp",
-            "--bind",
-            "/scratch:/scratch",
-            sandbox_sif,
-            "python3",
-            script_path,
-        ], None, True
+        return (
+            [
+                apptainer,
+                "exec",
+                "--nv",
+                "--bind",
+                "/tmp:/tmp",
+                "--bind",
+                "/scratch:/scratch",
+                sandbox_sif,
+                "python3",
+                script_path,
+            ],
+            None,
+            True,
+        )
 
     if _sandbox_required():
-        return None, (
-            "Sandboxed Python execution is required, but Apptainer or the sandbox image "
-            "is unavailable. Build `containers/coral_sandbox.sif` or set "
-            "`CORAL_SANDBOX_SIF` to a valid image before using execute_python."
-        ), False
+        return (
+            None,
+            (
+                "Sandboxed Python execution is required, but Apptainer or the sandbox image "
+                "is unavailable. Build `containers/coral_sandbox.sif` or set "
+                "`CORAL_SANDBOX_SIF` to a valid image before using execute_python."
+            ),
+            False,
+        )
 
     return [sys.executable, script_path], None, False
 
@@ -141,9 +152,7 @@ def execute_python(code: str, description: str = "") -> str:
         except OSError:
             pass
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, dir=tempfile.gettempdir()) as f:
         f.write(_SCRIPT_HEADER + code)
         script_path = f.name
 
@@ -186,7 +195,8 @@ def execute_python(code: str, description: str = "") -> str:
         if result.stderr:
             # Filter out common warnings that clutter output
             stderr_lines = [
-                line for line in result.stderr.split("\n")
+                line
+                for line in result.stderr.split("\n")
                 if line.strip()
                 and "UserWarning" not in line
                 and "FutureWarning" not in line

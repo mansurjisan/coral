@@ -45,9 +45,7 @@ class CoralRetriever:
 
         return self._rrf_merge(vector_results, fts_results, top_k)
 
-    def _rrf_merge(
-        self, vector_results: list, fts_results: list, top_k: int, k: int = 60
-    ) -> list[dict]:
+    def _rrf_merge(self, vector_results: list, fts_results: list, top_k: int, k: int = 60) -> list[dict]:
         """Reciprocal Rank Fusion to combine vector and BM25 results."""
         scores: dict[str, float] = {}
         data: dict[str, dict] = {}

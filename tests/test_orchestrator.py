@@ -14,45 +14,44 @@ from coral.config import set_cli_model
 class TestKeywordClassify:
     """Test fast keyword-based pre-router."""
 
-    @pytest.mark.parametrize("query,expected", [
-        # Single DATA queries
-        ("What is the water level at The Battery?", ["DATA"]),
-        ("Are there any active hurricanes?", ["DATA"]),
-        ("Get SST from ERDDAP for the Gulf of Maine", ["DATA"]),
-        ("Inspect the NetCDF file output.nc", ["DATA"]),
-        ("What is the current tide at station 8518750?", ["DATA"]),
-        ("What is the streamflow at this USGS gauge?", ["DATA"]),
-        ("Show me the latest GOES satellite image", ["DATA"]),
-        ("What is the wave height at the buoy?", ["DATA"]),
-        ("Get wind observations at the weather station", ["DATA"]),
-        ("What is the STOFS forecast at The Battery?", ["DATA"]),
-
-        # Single CODE queries
-        ("What does schism_init do?", ["CODE"]),
-        ("Explain the wetting drying algorithm in ADCIRC", ["CODE"]),
-        ("What parameters are in the core namelist?", ["CODE"]),
-
-        # Single WORKFLOW queries
-        ("Why did my Slurm job fail?", ["WORKFLOW"]),
-        ("Show me my recent jobs", ["WORKFLOW"]),
-        ("What tasks are aborted in the stofs suite?", ["WORKFLOW"]),
-        ("Read the log for job 12345", ["WORKFLOW"]),
-
-        # UFS experiment queries -> WORKFLOW
-        ("Set up a SCHISM experiment", ["WORKFLOW"]),
-        ("Submit experiment to Slurm", ["WORKFLOW"]),
-        ("Create experiment for UFS-Coastal", ["WORKFLOW"]),
-        ("Check the run status of my experiment", ["WORKFLOW"]),
-
-        # HPC system queries -> WORKFLOW
-        ("How much scratch space am I using?", ["WORKFLOW"]),
-        ("Show my disk quota", ["WORKFLOW"]),
-        ("What's my FairShare status?", ["WORKFLOW"]),
-        ("What modules loaded in my environment?", ["WORKFLOW"]),
-        ("What groups am I in? Show my group membership", ["WORKFLOW"]),
-        ("Show my allocation usage", ["WORKFLOW"]),
-        ("What partitions are available?", ["WORKFLOW"]),
-    ])
+    @pytest.mark.parametrize(
+        "query,expected",
+        [
+            # Single DATA queries
+            ("What is the water level at The Battery?", ["DATA"]),
+            ("Are there any active hurricanes?", ["DATA"]),
+            ("Get SST from ERDDAP for the Gulf of Maine", ["DATA"]),
+            ("Inspect the NetCDF file output.nc", ["DATA"]),
+            ("What is the current tide at station 8518750?", ["DATA"]),
+            ("What is the streamflow at this USGS gauge?", ["DATA"]),
+            ("Show me the latest GOES satellite image", ["DATA"]),
+            ("What is the wave height at the buoy?", ["DATA"]),
+            ("Get wind observations at the weather station", ["DATA"]),
+            ("What is the STOFS forecast at The Battery?", ["DATA"]),
+            # Single CODE queries
+            ("What does schism_init do?", ["CODE"]),
+            ("Explain the wetting drying algorithm in ADCIRC", ["CODE"]),
+            ("What parameters are in the core namelist?", ["CODE"]),
+            # Single WORKFLOW queries
+            ("Why did my Slurm job fail?", ["WORKFLOW"]),
+            ("Show me my recent jobs", ["WORKFLOW"]),
+            ("What tasks are aborted in the stofs suite?", ["WORKFLOW"]),
+            ("Read the log for job 12345", ["WORKFLOW"]),
+            # UFS experiment queries -> WORKFLOW
+            ("Set up a SCHISM experiment", ["WORKFLOW"]),
+            ("Submit experiment to Slurm", ["WORKFLOW"]),
+            ("Create experiment for UFS-Coastal", ["WORKFLOW"]),
+            ("Check the run status of my experiment", ["WORKFLOW"]),
+            # HPC system queries -> WORKFLOW
+            ("How much scratch space am I using?", ["WORKFLOW"]),
+            ("Show my disk quota", ["WORKFLOW"]),
+            ("What's my FairShare status?", ["WORKFLOW"]),
+            ("What modules loaded in my environment?", ["WORKFLOW"]),
+            ("What groups am I in? Show my group membership", ["WORKFLOW"]),
+            ("Show my allocation usage", ["WORKFLOW"]),
+            ("What partitions are available?", ["WORKFLOW"]),
+        ],
+    )
     def test_single_category(self, query, expected):
         result = _keyword_classify(query)
         assert result is not None
@@ -60,13 +59,16 @@ class TestKeywordClassify:
         assert categories[0] == expected[0]
         assert 0 < confidence <= 1.0
 
-    @pytest.mark.parametrize("query,expected_contains", [
-        # Multi-category queries
-        ("Plot the water levels from this NetCDF file", ["DATA", "CODE"]),
-        ("Compare STOFS forecast against observations and plot it", ["DATA", "CODE"]),
-        ("My Slurm job failed, explain the error from the docs", ["WORKFLOW", "CODE"]),
-        ("Set up a UFS experiment and plot the outputs", ["WORKFLOW", "CODE"]),
-    ])
+    @pytest.mark.parametrize(
+        "query,expected_contains",
+        [
+            # Multi-category queries
+            ("Plot the water levels from this NetCDF file", ["DATA", "CODE"]),
+            ("Compare STOFS forecast against observations and plot it", ["DATA", "CODE"]),
+            ("My Slurm job failed, explain the error from the docs", ["WORKFLOW", "CODE"]),
+            ("Set up a UFS experiment and plot the outputs", ["WORKFLOW", "CODE"]),
+        ],
+    )
     def test_multi_category(self, query, expected_contains):
         result = _keyword_classify(query)
         assert result is not None
@@ -74,10 +76,13 @@ class TestKeywordClassify:
         for cat in expected_contains:
             assert cat in categories
 
-    @pytest.mark.parametrize("query,expected", [
-        ("Compare STOFS forecast against observations and plot it", ["DATA", "CODE"]),
-        ("My Slurm job failed, explain the error from the docs", ["WORKFLOW", "CODE"]),
-    ])
+    @pytest.mark.parametrize(
+        "query,expected",
+        [
+            ("Compare STOFS forecast against observations and plot it", ["DATA", "CODE"]),
+            ("My Slurm job failed, explain the error from the docs", ["WORKFLOW", "CODE"]),
+        ],
+    )
     def test_multi_category_order(self, query, expected):
         result = _keyword_classify(query)
         assert result is not None
@@ -207,8 +212,10 @@ class TestOrchestratorChat:
         mock_synth_response = MagicMock()
         mock_synth_response.message.content = "Synthesized answer."
 
-        with patch("coral.agents.base.ollama") as mock_base_ollama, \
-             patch("coral.agents.orchestrator.ollama") as mock_orch_ollama:
+        with (
+            patch("coral.agents.base.ollama") as mock_base_ollama,
+            patch("coral.agents.orchestrator.ollama") as mock_orch_ollama,
+        ):
             mock_base_ollama.chat.return_value = mock_agent_response
             # First call = classification (keyword handles it), rest = synthesis
             mock_orch_ollama.chat.return_value = mock_synth_response
@@ -310,8 +317,12 @@ class TestCreateOrchestratorFactory:
 
     def _clear_env(self, monkeypatch):
         for var in [
-            "CORAL_MODEL", "CORAL_MODEL_ROUTER", "CORAL_MODEL_SYNTHESIS",
-            "CORAL_MODEL_DATA", "CORAL_MODEL_CODE", "CORAL_MODEL_WORKFLOW",
+            "CORAL_MODEL",
+            "CORAL_MODEL_ROUTER",
+            "CORAL_MODEL_SYNTHESIS",
+            "CORAL_MODEL_DATA",
+            "CORAL_MODEL_CODE",
+            "CORAL_MODEL_WORKFLOW",
             "CORAL_MODEL_ESCALATION",
         ]:
             monkeypatch.delenv(var, raising=False)

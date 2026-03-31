@@ -95,9 +95,7 @@ def launch(model: str, config: str, port: int, mode: str = "multi"):
             ]
             return chat_history, agent
 
-        msg.submit(
-            user_submit, [msg, chatbot, session_agent], [msg, chatbot, session_agent]
-        ).then(
+        msg.submit(user_submit, [msg, chatbot, session_agent], [msg, chatbot, session_agent]).then(
             bot_respond, [chatbot, session_agent], [chatbot, session_agent]
         )
 

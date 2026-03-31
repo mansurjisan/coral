@@ -6,22 +6,13 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import typer
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.key_binding import KeyBindings
-
-_SLASH_COMMANDS = [
-    "/help", "/clear", "/reset", "/mode", "/save",
-    "/memory", "/remember", "/forget", "/tools",
-    "/status", "/report", "/watch", "/audit", "/techmemo",
-    "/alert", "/branch", "/branches",
-]
-_slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -29,7 +20,30 @@ from rich.rule import Rule
 from rich.status import Status
 from rich.text import Text
 
-from coral.config import get_all_model_assignments, get_model, set_cli_model
+from coral.config import get_model, set_cli_model
+
+logger = logging.getLogger(__name__)
+
+_SLASH_COMMANDS = [
+    "/help",
+    "/clear",
+    "/reset",
+    "/mode",
+    "/save",
+    "/memory",
+    "/remember",
+    "/forget",
+    "/tools",
+    "/status",
+    "/report",
+    "/watch",
+    "/audit",
+    "/techmemo",
+    "/alert",
+    "/branch",
+    "/branches",
+]
+_slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 
 CORAL_BANNER = r"""[bold cyan]
    ██████╗ ██████╗ ██████╗  █████╗ ██╗
@@ -50,6 +64,7 @@ console = Console()
 # ---------------------------------------------------------------------------
 # Auto Ollama detection
 # ---------------------------------------------------------------------------
+
 
 def _auto_detect_ollama() -> None:
     """Read coral_host.env to set OLLAMA_HOST if not already set."""
@@ -77,10 +92,7 @@ def _auto_detect_ollama() -> None:
                     if line.startswith("OLLAMA_NODE="):
                         node = line.split("=", 1)[1].strip()
                         os.environ["OLLAMA_HOST"] = f"http://{node}:11434"
-                        console.print(
-                            f"[dim]Auto-detected Ollama at {node}:11434 "
-                            f"(from {candidate})[/]"
-                        )
+                        console.print(f"[dim]Auto-detected Ollama at {node}:11434 (from {candidate})[/]")
                         return
             except OSError:
                 continue
@@ -207,6 +219,7 @@ async def _handle_slash_command(
 
     if command == "/watch":
         import re as _re
+
         job_id = arg.strip()
         # Accept Slurm numeric IDs and PBS IDs like 12345.server
         if not job_id or not _re.match(r"^[\d]+(\.\w+)*$", job_id):
@@ -251,7 +264,6 @@ async def _set_alert_via_mcp(arg: str, agent, console: Console) -> None:
     Usage: /alert <station_id> <operator> <threshold>
     Example: /alert 8518750 > 1.5
     """
-    import threading
 
     parts = arg.strip().split()
 
@@ -288,11 +300,14 @@ async def _set_alert_via_mcp(arg: str, agent, console: Console) -> None:
     bridge = _get_mcp_bridge(agent)
     if bridge and "coral_create_alert" in bridge.tool_map:
         try:
-            result = await bridge.call_tool("coral_create_alert", {
-                "station_id": station_id,
-                "operator": operator,
-                "threshold": threshold,
-            })
+            result = await bridge.call_tool(
+                "coral_create_alert",
+                {
+                    "station_id": station_id,
+                    "operator": operator,
+                    "threshold": threshold,
+                },
+            )
             console.print(Markdown(result))
 
             # Start background MCP-mediated check loop
@@ -348,20 +363,21 @@ def _start_mcp_alert_loop(bridge, console: Console) -> None:
         loop = asyncio.new_event_loop()
         while True:
             import time as _t
+
             _t.sleep(300)  # Check every 5 minutes
             try:
                 if "coral_check_alerts" in bridge.tool_map:
-                    result = loop.run_until_complete(
-                        bridge.call_tool("coral_check_alerts", {})
-                    )
+                    result = loop.run_until_complete(bridge.call_tool("coral_check_alerts", {}))
                     if "TRIGGERED" in result:
                         console.print(f"\n[bold red]🚨 {result}[/]")
-                        _audit_log.append({
-                            "tool": "coral_check_alerts",
-                            "args": "background_poll",
-                            "time": datetime.now().strftime("%H:%M:%S"),
-                            "result_len": len(result),
-                        })
+                        _audit_log.append(
+                            {
+                                "tool": "coral_check_alerts",
+                                "args": "background_poll",
+                                "time": datetime.now().strftime("%H:%M:%S"),
+                                "result_len": len(result),
+                            }
+                        )
             except Exception as e:
                 logger.debug("Alert check cycle failed: %s", e)
 
@@ -421,10 +437,7 @@ def _show_audit(console: Console) -> None:
         time_str = entry.get("time", "?")
         result_len = entry.get("result_len", 0)
         size_label = f"{result_len} chars" if result_len else ""
-        lines.append(
-            f"  [dim]{time_str}[/] [cyan]{entry['tool']:30s}[/] "
-            f"[dim]{size_label}[/]"
-        )
+        lines.append(f"  [dim]{time_str}[/] [cyan]{entry['tool']:30s}[/] [dim]{size_label}[/]")
 
     # Summary stats
     total = len(_audit_log)
@@ -460,12 +473,14 @@ async def _show_status_dashboard(agent, console: Console) -> None:
     # Running jobs — try Slurm first, fall back to PBS
     import shutil
     import subprocess
+
     if shutil.which("squeue"):
         try:
             result = subprocess.run(
-                ["squeue", "-u", os.environ.get("USER", ""), "-h",
-                 "-o", "%i %j %T %M"],
-                capture_output=True, text=True, timeout=10,
+                ["squeue", "-u", os.environ.get("USER", ""), "-h", "-o", "%i %j %T %M"],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             jobs = result.stdout.strip().split("\n") if result.stdout.strip() else []
             running = [j for j in jobs if "RUNNING" in j]
@@ -479,9 +494,15 @@ async def _show_status_dashboard(agent, console: Console) -> None:
         try:
             result = subprocess.run(
                 ["qstat", "-u", os.environ.get("USER", "")],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
-            job_lines = [l for l in result.stdout.strip().split("\n") if l.strip() and not l.startswith("---") and "Job ID" not in l]
+            job_lines = [
+                line
+                for line in result.stdout.strip().split("\n")
+                if line.strip() and not line.startswith("---") and "Job ID" not in line
+            ]
             sections.append(f"  [green]✓[/] PBS — {len(job_lines)} jobs")
             for job in job_lines[:5]:
                 sections.append(f"    [dim]{job.strip()[:80]}[/]")
@@ -496,21 +517,26 @@ async def _show_status_dashboard(agent, console: Console) -> None:
     if os.path.isdir(scratch5):
         try:
             import subprocess
+
             result = subprocess.run(
                 ["du", "-sh", scratch5],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             size = result.stdout.strip().split()[0] if result.stdout.strip() else "?"
             sections.append(f"  [green]✓[/] Scratch5 — {size} used")
         except Exception:
             sections.append("  [yellow]?[/] Scratch5 — could not check")
 
-    console.print(Panel(
-        "\n".join(sections),
-        title="[bold cyan]Status[/]",
-        border_style="cyan",
-        padding=(0, 1),
-    ))
+    console.print(
+        Panel(
+            "\n".join(sections),
+            title="[bold cyan]Status[/]",
+            border_style="cyan",
+            padding=(0, 1),
+        )
+    )
 
 
 def _start_job_watcher(job_id: str, console: Console) -> None:
@@ -528,7 +554,9 @@ def _start_job_watcher(job_id: str, console: Console) -> None:
         """Check Slurm job state. Returns terminal state or None if still running."""
         result = subprocess.run(
             ["sacct", "-j", job_id, "-n", "-X", "--format=State", "--parsable2"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         state = result.stdout.strip().split("\n")[0].strip() if result.stdout.strip() else ""
         if state and state not in ("RUNNING", "PENDING", "REQUEUED", "SUSPENDED", ""):
@@ -539,7 +567,9 @@ def _start_job_watcher(job_id: str, console: Console) -> None:
         """Check PBS job state. Returns terminal state or None if still running."""
         result = subprocess.run(
             ["qstat", "-f", job_id],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if result.returncode != 0:
             # Job gone from PBS = finished
@@ -558,6 +588,7 @@ def _start_job_watcher(job_id: str, console: Console) -> None:
 
         for _ in range(max_polls):
             import time
+
             time.sleep(poll_interval)
             try:
                 state = _check_pbs() if use_pbs else _check_slurm()
@@ -593,8 +624,7 @@ async def _generate_report(agent, chat_log: list[dict], console: Console) -> Non
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"coral_report_{ts}.md"
         Path(filename).write_text(
-            f"# CORAL HPC Status Report — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-            f"{response}\n"
+            f"# CORAL HPC Status Report — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n{response}\n"
         )
         console.print()
         console.print(Rule(style="cyan"))
@@ -616,11 +646,13 @@ async def _generate_techmemo(agent, console: Console) -> None:
     if hasattr(agent, "agents"):
         for ag in agent.agents.values():
             tool_count += len(ag.tools)
-        server_count = len(set(
-            ag.mcp_bridge.tool_server_map.get(t["function"]["name"], "")
-            for ag in agent.agents.values()
-            for t in ag.tools
-        ))
+        server_count = len(
+            set(
+                ag.mcp_bridge.tool_server_map.get(t["function"]["name"], "")
+                for ag in agent.agents.values()
+                for t in ag.tools
+            )
+        )
     elif hasattr(agent, "tools"):
         tool_count = len(agent.tools)
 
@@ -700,6 +732,7 @@ def _save_conversation(
 def _session_file() -> Path:
     """Return the path for the session history file."""
     from coral.memory import _default_memory_dir
+
     return _default_memory_dir() / "last_session.json"
 
 
@@ -725,6 +758,7 @@ def _load_session() -> list[dict]:
 # Tool call display callback
 # ---------------------------------------------------------------------------
 
+
 def _get_agent_stats(agent) -> dict:
     """Extract token stats from the agent's last response."""
     # Multi-agent: check sub-agents for stats
@@ -743,20 +777,22 @@ def _get_agent_stats(agent) -> dict:
 
 def _make_tool_callback(console: Console, memory=None):
     """Create a tool-call callback that displays calls and auto-learns."""
+
     def on_tool_call(name, args, result):
-        import time as _t
         args_short = str(args)
         if len(args_short) > 80:
             args_short = args_short[:80] + "..."
         console.print(f"  [yellow]⚡ {name}[/]({args_short})")
 
         # Record in audit log
-        _audit_log.append({
-            "tool": name,
-            "args": args_short,
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "result_len": len(str(result)),
-        })
+        _audit_log.append(
+            {
+                "tool": name,
+                "args": args_short,
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "result_len": len(str(result)),
+            }
+        )
 
         # Auto-learn from tool results
         if memory is None:
@@ -825,6 +861,7 @@ def _auto_learn_from_tool(memory, tool_name: str, args: dict, result: str) -> No
 # Chat command
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def chat(
     model: str = typer.Option("", help="Ollama model name (default: CORAL_MODEL or qwen3:32b)"),
@@ -854,6 +891,7 @@ def chat(
         ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(f"{ollama_host}/api/tags")
                 resp.raise_for_status()
@@ -911,26 +949,33 @@ def chat(
         host = os.environ.get("HOSTNAME", os.environ.get("HOST", "local"))
         status = Text.assemble(
             ("  🪸 ", ""),
-            ("Model  ", "dim"), (resolved_model, "green"),
+            ("Model  ", "dim"),
+            (resolved_model, "green"),
             ("  │  ", "dim"),
-            ("Tools  ", "dim"), (str(tool_count), "green"),
+            ("Tools  ", "dim"),
+            (str(tool_count), "green"),
             ("  │  ", "dim"),
-            ("Mode  ", "dim"), (mode_label, "green"),
+            ("Mode  ", "dim"),
+            (mode_label, "green"),
             ("\n  🖥️  ", ""),
-            ("User   ", "dim"), (user, "cyan"),
+            ("User   ", "dim"),
+            (user, "cyan"),
             ("  │  ", "dim"),
-            ("Host   ", "dim"), (host, "cyan"),
+            ("Host   ", "dim"),
+            (host, "cyan"),
         )
         if memory.list_all():
             status.append("\n  🧠 ", style="")
             status.append(f"{len(memory.list_all())} memories loaded", style="dim")
-        console.print(Panel(
-            status,
-            border_style="cyan",
-            title="[bold cyan]CORAL v0.1.0[/]",
-            subtitle="[dim]Coastal Ocean Research AI Layer · /help for commands[/]",
-            padding=(0, 1),
-        ))
+        console.print(
+            Panel(
+                status,
+                border_style="cyan",
+                title="[bold cyan]CORAL v0.1.0[/]",
+                subtitle="[dim]Coastal Ocean Research AI Layer · /help for commands[/]",
+                padding=(0, 1),
+            )
+        )
         console.print()
 
         session: PromptSession[str] = PromptSession(
@@ -953,7 +998,11 @@ def chat(
                 # Slash commands
                 if stripped.startswith("/"):
                     handled = await _handle_slash_command(
-                        stripped, agent, memory, chat_log, console,
+                        stripped,
+                        agent,
+                        memory,
+                        chat_log,
+                        console,
                     )
                     if handled:
                         continue
@@ -975,11 +1024,13 @@ def chat(
                 chat_log.append({"role": "user", "content": stripped})
 
                 import time as _time
+
                 t0 = _time.monotonic()
 
                 try:
                     # Run query with Ctrl+C cancellation
                     import signal
+
                     _cancelled = False
 
                     def _cancel_handler(sig, frame):
@@ -1021,10 +1072,12 @@ def chat(
                         conf = agent.last_route_confidence
                         conf_str = f"confidence {conf:.0%}"
                         stats_parts.append(conf_str)
-                    console.print(Rule(
-                        title=f"[dim]{' · '.join(stats_parts)}[/]",
-                        style="dim",
-                    ))
+                    console.print(
+                        Rule(
+                            title=f"[dim]{' · '.join(stats_parts)}[/]",
+                            style="dim",
+                        )
+                    )
                     console.print()
                 except Exception as e:
                     console.print(f"\n[red]Error:[/] {e}\n")

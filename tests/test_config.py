@@ -10,8 +10,12 @@ class TestGetModel:
 
     def _clear_model_env(self, monkeypatch):
         for var in [
-            "CORAL_MODEL", "CORAL_MODEL_ROUTER", "CORAL_MODEL_SYNTHESIS",
-            "CORAL_MODEL_DATA", "CORAL_MODEL_CODE", "CORAL_MODEL_WORKFLOW",
+            "CORAL_MODEL",
+            "CORAL_MODEL_ROUTER",
+            "CORAL_MODEL_SYNTHESIS",
+            "CORAL_MODEL_DATA",
+            "CORAL_MODEL_CODE",
+            "CORAL_MODEL_WORKFLOW",
             "CORAL_MODEL_ESCALATION",
         ]:
             monkeypatch.delenv(var, raising=False)
