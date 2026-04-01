@@ -78,7 +78,7 @@ cd ocean-mcp/servers
 
 for server in coops-mcp stofs-mcp nhc-mcp recon-mcp erddap-mcp ofs-mcp \
               adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp \
-              ufs-runner-mcp hpc-system-mcp nos-workflow-mcp alert-mcp; do
+              ufs-runner-mcp hpc-system-mcp nos-workflow-mcp alert-mcp vdatum-mcp; do
     cd $server && pip install -e . && cd ..
 done
 ```

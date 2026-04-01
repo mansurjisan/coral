@@ -86,7 +86,8 @@ The ocean-mcp packages are pip-installed into the venv (not run via `uvx`, which
 
 ```bash
 pip install coops-mcp nhc-mcp stofs-mcp recon-mcp erddap-mcp ofs-mcp \
-            adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp
+            adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp \
+            vdatum-mcp
 ```
 
 ## 5. Build the Apptainer sandbox for `viz`
@@ -277,7 +278,8 @@ If not found, reinstall:
 
 ```bash
 pip install coops-mcp nhc-mcp stofs-mcp recon-mcp erddap-mcp ofs-mcp \
-            adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp
+            adcirc-mcp goes-mcp schism-mcp usgs-mcp winds-mcp ww3-mcp \
+            vdatum-mcp
 ```
 
 ### Ollama not found / can't connect
