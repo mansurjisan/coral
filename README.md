@@ -33,6 +33,28 @@ coral chat --model qwen3:32b --mode multi
 
 For HPC deployment, see [NOAA Ursa setup](docs/setup_ursa.md) or [TACC Vista setup](docs/setup_vista.md).
 
+## Supported Models
+
+CORAL works with any model available in [Ollama](https://ollama.com/library). Pull the model and pass it with `--model`:
+
+```bash
+ollama pull gemma4
+coral chat --model gemma4 --mode multi
+```
+
+You can also switch models mid-session using the `@` prefix:
+
+```
+You: @gemma4 What is the current water level at The Battery?
+```
+
+| Model | Size | Notes |
+|-------|------|-------|
+| `qwen3:32b` | 20 GB | Default, strong tool calling |
+| `gemma4` | 10 GB | Google's latest, good reasoning |
+| `llama3.3:70b` | 40 GB | Largest open model, needs >48 GB VRAM |
+| `qwen3:8b` | 5 GB | Lightweight, fast, good for testing |
+
 ## MCP Servers
 
 CORAL connects to **22 MCP servers** providing 150+ tools across three categories:
