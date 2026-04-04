@@ -936,13 +936,15 @@ def chat(
             elif hasattr(agent, "system_prompt"):
                 agent.system_prompt = agent.system_prompt + "\n\n" + mem_context
 
-        # Rehydrate agent history from restored session
+        # Note: previous session is saved in chat_log for /save export,
+        # but NOT rehydrated into agent history. Stale tool calls from
+        # prior sessions can poison model behavior (e.g. wrong product
+        # parameters propagating). Use /clear to reset if needed.
         if chat_log:
-            console.print(f"[dim]Restored {len(chat_log)} messages from previous session.[/]")
-            for entry in chat_log:
-                if entry["role"] in ("user", "assistant"):
-                    if hasattr(agent, "history"):
-                        agent.history.append(dict(entry))
+            console.print(
+                f"[dim]{len(chat_log)} messages from previous session "
+                f"(available for /save, not loaded into context).[/]"
+            )
 
         # Status panel
         user = os.environ.get("USER", "unknown")
