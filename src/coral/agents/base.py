@@ -142,6 +142,22 @@ class BaseAgent:
             if self.mcp_bridge.tool_server_map.get(t["function"]["name"]) in self.tool_filter
         ]
 
+    def _peer_server_hint(self, tool_name: str) -> str:
+        """Return a one-line hint listing peer servers for this agent.
+
+        Used to enrich tool-call error messages so the LLM sees that the
+        section has alternative servers it can try, rather than just a
+        bare error string.
+        """
+        if not self.tool_filter:
+            return ""
+        failing_server = self.mcp_bridge.tool_server_map.get(tool_name)
+        peers = [s for s in self.tool_filter if s != failing_server]
+        if not peers:
+            return ""
+        peer_list = ", ".join(peers)
+        return f"Other servers available in this section: {peer_list}. Try one of those tools."
+
     async def chat(self, user_message: str) -> str:
         """Run the agent loop: user message -> tool calls -> response."""
         with section_context(self.name):
@@ -184,6 +200,9 @@ class BaseAgent:
                         result = await self.mcp_bridge.call_tool(tool_name, tool_args)
                     except Exception as e:
                         result = f"Error calling {tool_name}: {e}"
+                        hint = self._peer_server_hint(tool_name)
+                        if hint:
+                            result += f"\n{hint}"
                         logger.error(result)
 
                     if self.on_tool_call:
@@ -254,6 +273,9 @@ class BaseAgent:
                         result = await self.mcp_bridge.call_tool(tool_name, tool_args)
                     except Exception as e:
                         result = f"Error calling {tool_name}: {e}"
+                        hint = self._peer_server_hint(tool_name)
+                        if hint:
+                            result += f"\n{hint}"
                         logger.error(result)
 
                     if self.on_tool_call:

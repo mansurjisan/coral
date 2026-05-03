@@ -204,3 +204,56 @@ class TestBaseAgent:
     def test_no_filter_returns_all(self, mock_bridge):
         agent = BaseAgent("test", "model", "prompt", mock_bridge, tool_filter=None)
         assert len(agent.tools) == 1
+
+    def test_peer_hint_lists_other_servers(self, mock_bridge):
+        agent = BaseAgent(
+            "test",
+            "model",
+            "prompt",
+            mock_bridge,
+            tool_filter=["test_server", "stofs", "ofs"],
+        )
+        hint = agent._peer_server_hint("test_tool")
+        assert "stofs" in hint
+        assert "ofs" in hint
+        assert "test_server" not in hint  # the failing server is excluded
+
+    def test_peer_hint_empty_without_filter(self, mock_bridge):
+        agent = BaseAgent("test", "model", "prompt", mock_bridge, tool_filter=None)
+        assert agent._peer_server_hint("test_tool") == ""
+
+    def test_peer_hint_empty_when_only_failing_server(self, mock_bridge):
+        agent = BaseAgent("test", "model", "prompt", mock_bridge, tool_filter=["test_server"])
+        # Tool's server is the only one in the filter, so no peers to suggest.
+        assert agent._peer_server_hint("test_tool") == ""
+
+    @pytest.mark.asyncio
+    async def test_tool_error_includes_peer_hint(self, mock_bridge):
+        """When a tool call fails, the error message should suggest peer servers."""
+        mock_bridge.call_tool = AsyncMock(side_effect=Exception("broken"))
+        agent = BaseAgent(
+            "test",
+            "model",
+            "prompt",
+            mock_bridge,
+            tool_filter=["test_server", "stofs", "ofs"],
+        )
+
+        tool_response = MagicMock()
+        tc = MagicMock()
+        tc.function.name = "test_tool"
+        tc.function.arguments = {}
+        tool_response.message.tool_calls = [tc]
+        tool_response.message.content = ""
+
+        text_response = MagicMock()
+        text_response.message.tool_calls = None
+        text_response.message.content = "ack."
+
+        with patch("coral.agents.base.ollama") as mock_ollama:
+            mock_ollama.chat.side_effect = [tool_response, text_response]
+            await agent.chat("test")
+
+        tool_msgs = [m for m in agent.history if m.get("role") == "tool"]
+        assert "Error calling test_tool" in tool_msgs[0]["content"]
+        assert "stofs" in tool_msgs[0]["content"]
