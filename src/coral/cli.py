@@ -43,6 +43,8 @@ _SLASH_COMMANDS = [
     "/alert",
     "/branch",
     "/branches",
+    "/retry",
+    "/undo",
 ]
 _slash_completer = WordCompleter(_SLASH_COMMANDS, sentence=True)
 
@@ -108,7 +110,7 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/clear[/]        Clear conversation history
   [cyan]/reset[/]        Reset all agents and history
   [cyan]/mode[/]         Show current agent mode
-  [cyan]/save[/]         Save conversation to markdown file
+  [cyan]/save[/]         Save conversation (markdown by default; .json for JSON)
   [cyan]/memory[/]       Show saved memories
   [cyan]/remember[/]     Save a memory (e.g. /remember account = coastal-act)
   [cyan]/forget[/]       Remove a memory (e.g. /forget account)
@@ -122,8 +124,13 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/techmemo[/]     Auto-generate NOAA tech memo draft
   [cyan]/alert[/]        Set a threshold alert (e.g. /alert 8518750 > 1.5)
                   /alert list — show all alerts  /alert check — check now
-  [cyan]/branch[/]       Save current conversation and start a new branch
-  [cyan]/branches[/]     List saved conversation branches
+  [cyan]/branch[/]       Save/load/delete persistent branches:
+                  /branch <name> — save current chat as branch, start fresh
+                  /branch load <name> — restore a saved branch
+                  /branch delete <name> — remove a saved branch
+  [cyan]/branches[/]     List saved branches (persisted to ~/.coral/branches.json)
+  [cyan]/retry[/]        Rerun the last query (drops the last answer first)
+  [cyan]/undo[/]         Drop the last user/assistant exchange
   [cyan]/help[/]         Show this help
 
   [bold]Query prefixes:[/]
@@ -253,6 +260,14 @@ async def _handle_slash_command(
 
     if command == "/branches":
         _list_branches(console)
+        return True
+
+    if command == "/undo":
+        _undo_last_turn(agent, chat_log, console)
+        return True
+
+    if command == "/retry":
+        await _retry_last_query(agent, chat_log, console)
         return True
 
     return False
@@ -393,40 +408,204 @@ def _start_mcp_alert_loop(bridge, console: Console) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Conversation branching
+# Conversation branching (persisted to ~/.coral/branches.json)
 # ---------------------------------------------------------------------------
 
+
+def _branches_file() -> Path:
+    """Path for the persisted branches file (alongside memory + sessions)."""
+    from coral.memory import _default_memory_dir
+
+    return _default_memory_dir() / "branches.json"
+
+
+# In-process cache of branches loaded from disk. Populated on first access.
 _branches: dict[str, list[dict]] = {}
+_branches_loaded = False
 
 
-def _branch_conversation(name: str, chat_log: list[dict], agent, console: Console) -> None:
-    """Save current conversation as a named branch and start fresh."""
-    if not name:
-        name = f"branch_{len(_branches) + 1}"
+def _load_branches() -> dict[str, list[dict]]:
+    """Lazily load branches from disk into the module cache and return it."""
+    global _branches_loaded
+    if _branches_loaded:
+        return _branches
 
-    _branches[name] = list(chat_log)  # Copy current log
-    chat_log.clear()
+    path = _branches_file()
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            stored = data.get("branches", {}) if isinstance(data, dict) else {}
+            _branches.clear()
+            _branches.update(stored)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not load branches from %s: %s", path, exc)
+    _branches_loaded = True
+    return _branches
 
-    # Reset underlying agent/orchestrator histories
+
+def _save_branches() -> None:
+    """Persist the in-memory branches dict to disk."""
+    path = _branches_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"version": 1, "branches": _branches}, indent=2))
+    except OSError as exc:
+        logger.warning("Could not save branches to %s: %s", path, exc)
+
+
+def _reset_agent_state(agent) -> None:
+    """Clear agent/orchestrator histories so a new branch starts fresh."""
     if hasattr(agent, "reset"):
         agent.reset()
     elif hasattr(agent, "clear_history"):
         agent.clear_history()
 
-    console.print(f"[green]Saved branch '{name}' ({len(_branches[name])} messages). Starting fresh.[/]")
+
+def _branch_conversation(arg: str, chat_log: list[dict], agent, console: Console) -> None:
+    """Handle /branch [save|load|delete] <name>.
+
+    Bare ``/branch <name>`` preserves the legacy save-and-reset semantic.
+    """
+    parts = arg.strip().split(None, 1)
+    sub = parts[0].lower() if parts else ""
+    name = parts[1].strip() if len(parts) > 1 else ""
+
+    branches = _load_branches()
+
+    if sub == "load":
+        if not name:
+            console.print("[dim]Usage: /branch load <name>[/]")
+            return
+        if name not in branches:
+            console.print(f"[red]No branch named '{name}'.[/]")
+            return
+        chat_log.clear()
+        chat_log.extend(branches[name])
+        _reset_agent_state(agent)
+        console.print(
+            f"[green]Loaded branch '{name}' ({len(chat_log)} messages).[/] "
+            "[dim]Agent context starts fresh; history is for /save export only.[/]"
+        )
+        return
+
+    if sub == "delete":
+        if not name:
+            console.print("[dim]Usage: /branch delete <name>[/]")
+            return
+        if name not in branches:
+            console.print(f"[red]No branch named '{name}'.[/]")
+            return
+        del branches[name]
+        _save_branches()
+        console.print(f"[dim]Deleted branch '{name}'.[/]")
+        return
+
+    # Default and explicit "save" both save-and-reset.
+    if sub == "save":
+        save_name = name
+    else:
+        save_name = arg.strip()
+
+    if not save_name:
+        save_name = f"branch_{len(branches) + 1}"
+
+    branches[save_name] = list(chat_log)
+    _save_branches()
+    chat_log.clear()
+    _reset_agent_state(agent)
+
+    console.print(f"[green]Saved branch '{save_name}' ({len(branches[save_name])} messages). Starting fresh.[/]")
 
 
 def _list_branches(console: Console) -> None:
     """List all saved conversation branches."""
-    if not _branches:
+    branches = _load_branches()
+    if not branches:
         console.print("[dim]No branches saved. Use /branch <name> to create one.[/]")
         return
 
     console.print("[bold]Conversation branches:[/]")
-    for name, log in _branches.items():
+    for name, log in branches.items():
         msg_count = len(log)
         last_msg = log[-1]["content"][:60] + "..." if log else ""
         console.print(f"  [cyan]{name}[/] — {msg_count} messages — {last_msg}")
+
+
+# ---------------------------------------------------------------------------
+# /undo and /retry
+# ---------------------------------------------------------------------------
+
+
+def _truncate_history_to_before_last_user(history: list[dict]) -> bool:
+    """Trim the agent's history list to before its most recent user entry.
+
+    Returns True if anything was removed.
+    """
+    for i in range(len(history) - 1, -1, -1):
+        if history[i].get("role") == "user":
+            del history[i:]
+            return True
+    return False
+
+
+def _undo_last_turn(agent, chat_log: list[dict], console: Console) -> bool:
+    """Drop the most recent user/assistant exchange from chat_log and agent state.
+
+    Returns True if something was removed. Called by both /undo and /retry.
+    """
+    if not chat_log:
+        console.print("[dim]Nothing to undo.[/]")
+        return False
+
+    # Pop the trailing assistant turn (if any) plus the user that produced it.
+    if chat_log and chat_log[-1].get("role") == "assistant":
+        chat_log.pop()
+    if chat_log and chat_log[-1].get("role") == "user":
+        chat_log.pop()
+
+    # Keep agent histories in sync.
+    if hasattr(agent, "history"):
+        _truncate_history_to_before_last_user(agent.history)
+    if hasattr(agent, "agents"):
+        for sub in agent.agents.values():
+            if hasattr(sub, "history"):
+                _truncate_history_to_before_last_user(sub.history)
+
+    console.print("[dim]Last turn dropped.[/]")
+    return True
+
+
+async def _retry_last_query(agent, chat_log: list[dict], console: Console) -> None:
+    """Rerun the most recent user query after rolling back its last answer."""
+    last_user = next(
+        (entry["content"] for entry in reversed(chat_log) if entry.get("role") == "user"),
+        None,
+    )
+    if not last_user:
+        console.print("[dim]Nothing to retry.[/]")
+        return
+
+    _undo_last_turn(agent, chat_log, console)
+
+    chat_log.append({"role": "user", "content": last_user})
+    try:
+        with Status(
+            "🪸 [cyan]Retrying...[/]",
+            console=console,
+            spinner="dots",
+        ):
+            response = await agent.chat(last_user)
+    except Exception as exc:
+        console.print(f"[red]Retry failed:[/] {exc}")
+        return
+
+    chat_log.append({"role": "assistant", "content": response})
+    console.print()
+    console.print(Rule(style="cyan"))
+    console.print("[bold cyan]CORAL:[/]")
+    console.print(Markdown(response))
+    console.print(Rule(style="dim"))
+    console.print()
 
 
 # Tool call audit log (populated by the tool callback)
@@ -751,26 +930,53 @@ Format as clean markdown.
 
 def _save_conversation(
     chat_log: list[dict],
-    filename: str,
+    arg: str,
     console: Console,
 ) -> None:
-    """Save conversation to a markdown file."""
+    """Save conversation. Markdown by default; JSON if filename ends in .json
+    or arg starts with --json.
+    """
     if not chat_log:
         console.print("[dim]No conversation to save.[/]")
         return
 
+    arg = (arg or "").strip()
+    use_json = False
+    filename = arg
+
+    if arg.startswith("--json"):
+        use_json = True
+        filename = arg[len("--json") :].strip()
+
+    if filename and filename.lower().endswith(".json"):
+        use_json = True
+
     if not filename:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"coral_chat_{ts}.md"
+        ext = "json" if use_json else "md"
+        filename = f"coral_chat_{ts}.{ext}"
 
-    lines = [f"# CORAL Chat — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
-    for entry in chat_log:
-        if entry["role"] == "user":
-            lines.append(f"## You\n\n{entry['content']}\n")
-        elif entry["role"] == "assistant":
-            lines.append(f"## CORAL\n\n{entry['content']}\n")
+    if use_json:
+        payload = {
+            "version": 1,
+            "saved_at": datetime.now().astimezone().isoformat(),
+            "model": os.environ.get("CORAL_MODEL", ""),
+            "messages": [
+                {"role": entry.get("role"), "content": entry.get("content", "")}
+                for entry in chat_log
+                if entry.get("role") in ("user", "assistant")
+            ],
+        }
+        Path(filename).write_text(json.dumps(payload, indent=2))
+    else:
+        lines = [f"# CORAL Chat — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
+        for entry in chat_log:
+            if entry["role"] == "user":
+                lines.append(f"## You\n\n{entry['content']}\n")
+            elif entry["role"] == "assistant":
+                lines.append(f"## CORAL\n\n{entry['content']}\n")
+        Path(filename).write_text("\n".join(lines))
 
-    Path(filename).write_text("\n".join(lines))
     console.print(f"[green]Saved to {filename}[/]")
 
 

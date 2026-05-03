@@ -36,10 +36,24 @@ class TestWatchValidation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def isolated_branches(tmp_path, monkeypatch):
+    """Isolate branch persistence to a tmp dir for the duration of a test."""
+    monkeypatch.setenv("CORAL_MEMORY_DIR", str(tmp_path))
+
+    import coral.cli as cli_module
+
+    cli_module._branches.clear()
+    cli_module._branches_loaded = False
+    yield tmp_path
+    cli_module._branches.clear()
+    cli_module._branches_loaded = False
+
+
 class TestBranch:
     """Test conversation branching."""
 
-    def test_branch_clears_chat_log(self):
+    def test_branch_clears_chat_log(self, isolated_branches):
         from coral.cli import _branch_conversation, _branches
 
         chat_log = [
@@ -56,7 +70,7 @@ class TestBranch:
         assert "test_branch" in _branches
         assert len(_branches["test_branch"]) == 2
 
-    def test_branch_resets_agent(self):
+    def test_branch_resets_agent(self, isolated_branches):
         from coral.cli import _branch_conversation
 
         chat_log = [{"role": "user", "content": "x"}]
@@ -68,7 +82,7 @@ class TestBranch:
 
         agent.reset.assert_called_once()
 
-    def test_branch_auto_names(self):
+    def test_branch_auto_names(self, isolated_branches):
         from coral.cli import _branch_conversation, _branches
 
         chat_log = [{"role": "user", "content": "x"}]
@@ -80,6 +94,76 @@ class TestBranch:
 
         # Should have created a branch with auto-generated name
         assert len(_branches) == initial_count + 1
+
+    def test_branch_persists_to_disk(self, isolated_branches):
+        """A saved branch should still be visible to a fresh module load."""
+        from coral.cli import _branch_conversation, _branches_file
+
+        chat_log = [
+            {"role": "user", "content": "ping"},
+            {"role": "assistant", "content": "pong"},
+        ]
+        agent = MagicMock()
+        agent.reset = MagicMock()
+        console = MagicMock()
+
+        _branch_conversation("disk_persist", chat_log, agent, console)
+
+        on_disk = _branches_file().read_text()
+        assert "disk_persist" in on_disk
+        assert "ping" in on_disk
+
+    def test_branch_load_restores_chat_log(self, isolated_branches):
+        from coral.cli import _branch_conversation
+
+        agent = MagicMock()
+        agent.reset = MagicMock()
+        console = MagicMock()
+
+        original = [
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+        ]
+        chat_log: list[dict] = list(original)
+        _branch_conversation("snap", chat_log, agent, console)
+        assert chat_log == []
+
+        chat_log.append({"role": "user", "content": "unrelated"})
+        _branch_conversation("load snap", chat_log, agent, console)
+
+        assert chat_log == original
+        assert agent.reset.call_count >= 2  # save reset + load reset
+
+    def test_branch_load_unknown_name(self, isolated_branches):
+        from coral.cli import _branch_conversation
+
+        chat_log = [{"role": "user", "content": "x"}]
+        agent = MagicMock()
+        console = MagicMock()
+
+        _branch_conversation("load missing_name", chat_log, agent, console)
+
+        # chat_log should be untouched
+        assert len(chat_log) == 1
+        output = str(console.print.call_args_list)
+        assert "missing_name" in output
+
+    def test_branch_delete(self, isolated_branches):
+        from coral.cli import _branch_conversation, _branches
+
+        chat_log = [
+            {"role": "user", "content": "x"},
+            {"role": "assistant", "content": "y"},
+        ]
+        agent = MagicMock()
+        agent.reset = MagicMock()
+        console = MagicMock()
+
+        _branch_conversation("to_delete", chat_log, agent, console)
+        assert "to_delete" in _branches
+
+        _branch_conversation("delete to_delete", [], agent, console)
+        assert "to_delete" not in _branches
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +436,7 @@ class TestGracefulDegradation:
         _save_conversation([], "", console)
         console.print.assert_called_once()
 
-    def test_list_branches_empty(self):
+    def test_list_branches_empty(self, isolated_branches):
         from coral.cli import _list_branches, _branches
 
         _branches.clear()
@@ -591,3 +675,181 @@ class TestAuditCommand:
         # Most recent entry only
         assert "slurm_squeue" in result.stdout
         assert "coops_get_water_levels" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# /undo
+# ---------------------------------------------------------------------------
+
+
+class TestUndoLastTurn:
+    def test_drops_user_assistant_pair_from_chat_log(self):
+        from coral.cli import _undo_last_turn
+
+        chat_log = [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "user", "content": "second"},
+            {"role": "assistant", "content": "second answer"},
+        ]
+        agent = MagicMock(spec=["history"])
+        agent.history = list(chat_log)
+        console = MagicMock()
+
+        assert _undo_last_turn(agent, chat_log, console) is True
+        assert chat_log == [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "first answer"},
+        ]
+        # agent.history should also lose the second user turn (and anything after)
+        assert agent.history == [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "first answer"},
+        ]
+
+    def test_drops_pending_user_when_no_assistant(self):
+        from coral.cli import _undo_last_turn
+
+        chat_log = [
+            {"role": "user", "content": "asked but errored"},
+        ]
+        agent = MagicMock(spec=["history"])
+        agent.history = list(chat_log)
+        console = MagicMock()
+
+        _undo_last_turn(agent, chat_log, console)
+        assert chat_log == []
+
+    def test_empty_log_is_noop(self):
+        from coral.cli import _undo_last_turn
+
+        chat_log: list[dict] = []
+        agent = MagicMock(spec=["history"])
+        agent.history = []
+        console = MagicMock()
+
+        assert _undo_last_turn(agent, chat_log, console) is False
+        output = str(console.print.call_args_list)
+        assert "Nothing to undo" in output
+
+    def test_truncates_orchestrator_subagents(self):
+        """For multi-agent orchestrators, every sub-agent history is trimmed."""
+        from coral.cli import _undo_last_turn
+
+        chat_log = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1"},
+            {"role": "user", "content": "Q2"},
+            {"role": "assistant", "content": "A2"},
+        ]
+
+        sub_data = MagicMock(spec=["history"])
+        sub_data.history = [
+            {"role": "user", "content": "Q1"},
+            {"role": "assistant", "content": "A1 from data"},
+            {"role": "user", "content": "Q2"},
+            {"role": "assistant", "content": "A2 from data"},
+        ]
+
+        orch = MagicMock(spec=["history", "agents"])
+        orch.history = list(sub_data.history)
+        orch.agents = {"DATA": sub_data}
+
+        _undo_last_turn(orch, chat_log, MagicMock())
+
+        assert len(chat_log) == 2
+        assert orch.history[-1]["content"] == "A1 from data"
+        assert sub_data.history[-1]["content"] == "A1 from data"
+
+
+class TestRetryLastQuery:
+    @pytest.mark.asyncio
+    async def test_retry_reruns_last_user(self):
+        from coral.cli import _retry_last_query
+
+        agent = MagicMock(spec=["history", "chat"])
+        agent.history = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "first answer"},
+        ]
+        agent.chat = AsyncMock(return_value="second answer")
+        chat_log = list(agent.history)
+        console = MagicMock()
+
+        await _retry_last_query(agent, chat_log, console)
+
+        agent.chat.assert_awaited_once_with("hello")
+        # First answer was dropped, retry produced second
+        assert chat_log[-1] == {"role": "assistant", "content": "second answer"}
+        # Only one user/assistant pair total (the retry)
+        assert len(chat_log) == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_with_no_history_is_noop(self):
+        from coral.cli import _retry_last_query
+
+        agent = MagicMock(spec=["history", "chat"])
+        agent.chat = AsyncMock()
+        chat_log: list[dict] = []
+        console = MagicMock()
+
+        await _retry_last_query(agent, chat_log, console)
+
+        agent.chat.assert_not_awaited()
+        output = str(console.print.call_args_list)
+        assert "Nothing to retry" in output
+
+
+# ---------------------------------------------------------------------------
+# /save JSON export
+# ---------------------------------------------------------------------------
+
+
+class TestSaveJsonExport:
+    def test_filename_with_json_ext_writes_json(self, tmp_path, monkeypatch):
+        from coral.cli import _save_conversation
+
+        monkeypatch.chdir(tmp_path)
+        chat_log = [
+            {"role": "user", "content": "ping"},
+            {"role": "assistant", "content": "pong"},
+        ]
+
+        _save_conversation(chat_log, "out.json", MagicMock())
+
+        path = tmp_path / "out.json"
+        assert path.exists()
+        import json as _json
+
+        payload = _json.loads(path.read_text())
+        assert payload["version"] == 1
+        assert payload["messages"][0] == {"role": "user", "content": "ping"}
+        assert payload["messages"][1] == {"role": "assistant", "content": "pong"}
+        assert "saved_at" in payload
+
+    def test_json_flag_with_no_filename(self, tmp_path, monkeypatch):
+        from coral.cli import _save_conversation
+
+        monkeypatch.chdir(tmp_path)
+        chat_log = [{"role": "user", "content": "x"}]
+
+        _save_conversation(chat_log, "--json", MagicMock())
+
+        json_files = list(tmp_path.glob("coral_chat_*.json"))
+        assert len(json_files) == 1
+
+    def test_default_still_markdown(self, tmp_path, monkeypatch):
+        from coral.cli import _save_conversation
+
+        monkeypatch.chdir(tmp_path)
+        chat_log = [
+            {"role": "user", "content": "ping"},
+            {"role": "assistant", "content": "pong"},
+        ]
+
+        _save_conversation(chat_log, "out.md", MagicMock())
+
+        text = (tmp_path / "out.md").read_text()
+        assert text.startswith("# CORAL Chat")
+        assert "## You" in text
+        assert "## CORAL" in text
