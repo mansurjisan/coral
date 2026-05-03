@@ -359,3 +359,235 @@ class TestGracefulDegradation:
         console = MagicMock()
         _list_branches(console)
         console.print.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /route slash command
+# ---------------------------------------------------------------------------
+
+
+class TestShowRoute:
+    def test_no_decision_yet(self):
+        from coral.cli import _show_route
+
+        agent = MagicMock()
+        agent.last_route_decision = None
+        agent.agents = {"DATA": MagicMock()}  # multi-agent, just no query yet
+        console = MagicMock()
+
+        _show_route(agent, console)
+
+        output = str(console.print.call_args_list)
+        assert "No query routed yet" in output or "ask a question" in output
+
+    def test_single_mode_warns(self):
+        from coral.cli import _show_route
+
+        agent = MagicMock(spec=["last_route_decision"])
+        agent.last_route_decision = None
+        console = MagicMock()
+
+        _show_route(agent, console)
+
+        output = str(console.print.call_args_list)
+        assert "multi-agent" in output
+
+    def test_keyword_decision_rendered(self):
+        from coral.cli import _show_route
+
+        agent = MagicMock()
+        agent.last_route_decision = {
+            "categories": ["DATA"],
+            "method": "keyword",
+            "confidence": 0.85,
+            "matched_keywords": ["water level", "tide"],
+            "query": "What is the water level at The Battery?",
+        }
+        console = MagicMock()
+
+        _show_route(agent, console)
+
+        output = str(console.print.call_args_list)
+        assert "DATA" in output
+        assert "keyword" in output
+        assert "0.85" in output
+        assert "water level" in output
+
+    def test_llm_decision_shows_router_model(self):
+        from coral.cli import _show_route
+
+        agent = MagicMock()
+        agent.last_route_decision = {
+            "categories": ["WORKFLOW"],
+            "method": "llm",
+            "confidence": 0.7,
+            "matched_keywords": [],
+            "query": "Hello there",
+            "router_model": "qwen3:8b",
+            "raw_response": "WORKFLOW",
+        }
+        console = MagicMock()
+
+        _show_route(agent, console)
+
+        output = str(console.print.call_args_list)
+        assert "WORKFLOW" in output
+        assert "qwen3:8b" in output
+
+
+# ---------------------------------------------------------------------------
+# coral audit (--since parsing + filtering)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSince:
+    def test_relative_hours(self):
+        from datetime import datetime, timezone
+        from coral.cli import _parse_since
+
+        result = _parse_since("2h")
+        assert result is not None
+        delta = datetime.now(timezone.utc) - result
+        assert 7100 < delta.total_seconds() < 7300  # ~2h
+
+    def test_relative_minutes(self):
+        from coral.cli import _parse_since
+
+        assert _parse_since("30m") is not None
+
+    def test_relative_days(self):
+        from coral.cli import _parse_since
+
+        assert _parse_since("1d") is not None
+
+    def test_iso_timestamp(self):
+        from coral.cli import _parse_since
+
+        result = _parse_since("2026-04-01T00:00:00")
+        assert result is not None
+        assert result.year == 2026
+
+    def test_garbage_returns_none(self):
+        from coral.cli import _parse_since
+
+        assert _parse_since("not a time") is None
+        assert _parse_since("") is None
+
+
+class TestAuditCommand:
+    """Tests for the `coral audit` Typer command using a fixture JSONL file."""
+
+    @pytest.fixture
+    def fixture_log(self, tmp_path, monkeypatch):
+        import json
+
+        path = tmp_path / "coral_audit.jsonl"
+        entries = [
+            {
+                "timestamp": "2026-05-01T10:00:00+00:00",
+                "event": "query_start",
+                "query_id": "abc123",
+                "mode": "multi",
+                "routed_sections": ["DATA"],
+                "section": None,
+            },
+            {
+                "timestamp": "2026-05-01T10:00:05+00:00",
+                "event": "tool_call",
+                "query_id": "abc123",
+                "mode": "multi",
+                "routed_sections": ["DATA"],
+                "section": "DATA",
+                "tool": "coops_get_water_levels",
+                "args_summary": '{"station": "8518750"}',
+                "duration_ms": 250,
+                "success": True,
+            },
+            {
+                "timestamp": "2026-05-01T11:00:00+00:00",
+                "event": "tool_call",
+                "query_id": "def456",
+                "mode": "multi",
+                "routed_sections": ["WORKFLOW"],
+                "section": "WORKFLOW",
+                "tool": "slurm_squeue",
+                "args_summary": "{}",
+                "duration_ms": 100,
+                "success": True,
+            },
+        ]
+        with path.open("w") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        monkeypatch.setenv("CORAL_AUDIT_LOG", str(path))
+        return path
+
+    def test_filter_by_query_id(self, fixture_log):
+        from typer.testing import CliRunner
+
+        from coral.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["audit", "--query-id", "abc123"])
+        assert result.exit_code == 0
+        assert "coops_get_water_levels" in result.stdout
+        assert "slurm_squeue" not in result.stdout
+
+    def test_filter_by_tool_substring(self, fixture_log):
+        from typer.testing import CliRunner
+
+        from coral.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["audit", "--tool", "coops"])
+        assert result.exit_code == 0
+        assert "coops_get_water_levels" in result.stdout
+        assert "slurm_squeue" not in result.stdout
+
+    def test_filter_by_section(self, fixture_log):
+        from typer.testing import CliRunner
+
+        from coral.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["audit", "--section", "WORKFLOW"])
+        assert result.exit_code == 0
+        assert "slurm_squeue" in result.stdout
+        assert "coops_get_water_levels" not in result.stdout
+
+    def test_format_json(self, fixture_log):
+        from typer.testing import CliRunner
+
+        from coral.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["audit", "--format", "json"])
+        assert result.exit_code == 0
+        # Should be valid JSON containing all 3 entries
+        # (rich's print_json writes to stdout)
+        assert "abc123" in result.stdout
+        assert "def456" in result.stdout
+
+    def test_no_log_file(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        from coral.cli import app
+
+        # Point at a non-existent path
+        monkeypatch.setenv("CORAL_AUDIT_LOG", str(tmp_path / "missing.jsonl"))
+        runner = CliRunner()
+        result = runner.invoke(app, ["audit"])
+        assert result.exit_code == 0
+        assert "No audit log" in result.stdout
+
+    def test_limit_truncates(self, fixture_log):
+        from typer.testing import CliRunner
+
+        from coral.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["audit", "--limit", "1"])
+        assert result.exit_code == 0
+        # Most recent entry only
+        assert "slurm_squeue" in result.stdout
+        assert "coops_get_water_levels" not in result.stdout

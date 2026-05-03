@@ -38,6 +38,7 @@ _SLASH_COMMANDS = [
     "/report",
     "/watch",
     "/audit",
+    "/route",
     "/techmemo",
     "/alert",
     "/branch",
@@ -115,7 +116,9 @@ SLASH_COMMANDS_HELP = """\
   [cyan]/status[/]       Quick dashboard: jobs, quota, Ollama health
   [cyan]/report[/]       Generate HPC status report as markdown
   [cyan]/watch[/]        Watch a job (e.g. /watch 9848988)
-  [cyan]/audit[/]        Show tool call history and stats
+  [cyan]/audit[/]        Show tool call history and stats (current session only;
+                  for persistent history use [bold]coral audit[/])
+  [cyan]/route[/]        Show how the last query was classified (multi-agent mode)
   [cyan]/techmemo[/]     Auto-generate NOAA tech memo draft
   [cyan]/alert[/]        Set a threshold alert (e.g. /alert 8518750 > 1.5)
                   /alert list — show all alerts  /alert check — check now
@@ -230,6 +233,10 @@ async def _handle_slash_command(
 
     if command == "/audit":
         _show_audit(console)
+        return True
+
+    if command == "/route":
+        _show_route(agent, console)
         return True
 
     if command == "/techmemo":
@@ -450,6 +457,44 @@ def _show_audit(console: Console) -> None:
     lines.append("[bold]Most used:[/]")
     for tool, count in top_tools:
         lines.append(f"  [cyan]{tool}[/] — {count}x")
+
+    console.print("\n".join(lines))
+
+
+def _show_route(agent, console: Console) -> None:
+    """Show how the last query was classified by the orchestrator."""
+    decision = getattr(agent, "last_route_decision", None)
+    if not decision:
+        if not hasattr(agent, "agents"):
+            console.print(
+                "[dim]Routing is only used in multi-agent mode. Restart with [bold]coral chat --mode multi[/].[/]"
+            )
+        else:
+            console.print("[dim]No query routed yet — ask a question first.[/]")
+        return
+
+    cats = ", ".join(decision.get("categories", [])) or "(none)"
+    method = decision.get("method", "?")
+    confidence = decision.get("confidence", 0.0)
+    matched = decision.get("matched_keywords") or []
+    query = (decision.get("query") or "").strip()
+
+    lines = ["[bold]Last route decision:[/]"]
+    lines.append(f"  [dim]Query:[/]      {query[:120]}{'…' if len(query) > 120 else ''}")
+    lines.append(f"  [dim]Route:[/]      [cyan]{cats}[/]")
+    lines.append(f"  [dim]Method:[/]     {method}")
+    lines.append(f"  [dim]Confidence:[/] {confidence:.2f}")
+    if matched:
+        shown = ", ".join(matched[:8])
+        more = f" (+{len(matched) - 8} more)" if len(matched) > 8 else ""
+        lines.append(f"  [dim]Matched:[/]    {shown}{more}")
+    if method in ("llm", "default"):
+        rm = decision.get("router_model")
+        if rm:
+            lines.append(f"  [dim]Router model:[/] {rm}")
+        raw = decision.get("raw_response")
+        if raw:
+            lines.append(f"  [dim]Raw LLM:[/]   {raw[:80]}")
 
     console.print("\n".join(lines))
 
@@ -1130,6 +1175,216 @@ def tools(
         await bridge.close()
 
     asyncio.run(run())
+
+
+@app.command()
+def doctor(
+    config: str = typer.Option("coral_config.json", help="MCP config path"),
+):
+    """Health-check Ollama and every configured MCP server.
+
+    Exits with a non-zero code equal to the number of unreachable components.
+    Useful for first-run setup and post-deploy smoke tests.
+    """
+    import httpx
+    from rich.table import Table
+
+    from coral.mcp_bridge import MCPBridge
+
+    _auto_detect_ollama()
+
+    async def run() -> int:
+        table = Table(title="CORAL doctor", show_lines=False)
+        table.add_column("Component", style="cyan", no_wrap=True)
+        table.add_column("Status", no_wrap=True)
+        table.add_column("Tools", justify="right")
+        table.add_column("Notes", style="dim")
+
+        failures = 0
+
+        # Ollama
+        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{ollama_host}/api/version")
+                version = resp.json().get("version", "unknown")
+            table.add_row("ollama", "[green]up[/]", "—", f"{ollama_host} v{version}")
+        except Exception as exc:
+            failures += 1
+            table.add_row("ollama", "[red]down[/]", "—", f"{ollama_host}: {exc}")
+
+        # MCP servers
+        try:
+            bridge = MCPBridge(config)
+        except Exception as exc:
+            console.print(f"[red]Could not load config {config}: {exc}[/]")
+            console.print(table)
+            return failures + 1
+
+        expected = sorted(bridge.config.get("mcpServers", {}).keys())
+        try:
+            await bridge.connect_all()
+        except Exception as exc:
+            console.print(f"[red]Bridge connect_all failed: {exc}[/]")
+
+        tool_counts: dict[str, int] = {}
+        for server in bridge.tool_server_map.values():
+            tool_counts[server] = tool_counts.get(server, 0) + 1
+
+        for name in expected:
+            if name in bridge.sessions:
+                count = tool_counts.get(name, 0)
+                table.add_row(name, "[green]up[/]", str(count), "")
+            else:
+                failures += 1
+                table.add_row(name, "[red]down[/]", "—", "connect failed")
+
+        try:
+            await bridge.close()
+        except Exception:
+            pass
+
+        console.print(table)
+        if failures:
+            console.print(f"[red]{failures} component(s) unreachable.[/]")
+        else:
+            console.print("[green]All components healthy.[/]")
+        return failures
+
+    rc = asyncio.run(run())
+    if rc:
+        raise typer.Exit(code=rc)
+
+
+@app.command()
+def audit(
+    query_id: str = typer.Option("", "--query-id", help="Filter by query id"),
+    tool: str = typer.Option("", "--tool", help="Substring match against tool name"),
+    section: str = typer.Option("", "--section", help="DATA, CODE, or WORKFLOW"),
+    event: str = typer.Option("", "--event", help="Filter by event type (e.g. tool_call)"),
+    since: str = typer.Option("", "--since", help="ISO timestamp or relative (e.g. '1h', '30m', '2d')"),
+    limit: int = typer.Option(50, "--limit", help="Max entries to display"),
+    output_format: str = typer.Option("table", "--format", help="table | json | jsonl"),
+):
+    """Query the persistent CORAL audit log (logs/coral_audit.jsonl)."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    from rich.table import Table
+
+    from coral.audit import _audit_log_path
+
+    path = _audit_log_path()
+    if not path.exists():
+        console.print(f"[yellow]No audit log found at {path}.[/]")
+        raise typer.Exit(code=0)
+
+    cutoff: datetime | None = None
+    if since:
+        cutoff = _parse_since(since)
+        if cutoff is None:
+            console.print(f"[red]Could not parse --since '{since}'.[/]")
+            raise typer.Exit(code=2)
+
+    section_upper = section.upper().strip()
+    matches: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if query_id and entry.get("query_id") != query_id:
+                continue
+            if event and entry.get("event") != event:
+                continue
+            if section_upper:
+                entry_section = (entry.get("section") or "").upper()
+                routed = [s.upper() for s in entry.get("routed_sections") or []]
+                if section_upper != entry_section and section_upper not in routed:
+                    continue
+            if tool and tool not in (entry.get("tool") or ""):
+                continue
+            if cutoff is not None:
+                ts = entry.get("timestamp")
+                try:
+                    when = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
+                except ValueError:
+                    when = None
+                if when is None:
+                    continue
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+                if when < cutoff:
+                    continue
+            matches.append(entry)
+
+    matches = matches[-limit:]
+
+    if not matches:
+        console.print("[dim]No audit entries matched.[/]")
+        return
+
+    if output_format == "jsonl":
+        for entry in matches:
+            console.print_json(data=entry)
+        return
+    if output_format == "json":
+        console.print_json(data=matches)
+        return
+
+    table = Table(title=f"Audit log ({len(matches)} entries)", show_lines=False)
+    table.add_column("Time", style="dim", no_wrap=True)
+    table.add_column("Query", no_wrap=True)
+    table.add_column("Event", style="cyan")
+    table.add_column("Section", no_wrap=True)
+    table.add_column("Tool", no_wrap=True)
+    table.add_column("Details", style="dim", overflow="fold")
+
+    for entry in matches:
+        ts = (entry.get("timestamp") or "")[:19].replace("T", " ")
+        qid = (entry.get("query_id") or "")[:12]
+        evt = entry.get("event") or ""
+        sec = entry.get("section") or ",".join(entry.get("routed_sections") or [])
+        tool_name = entry.get("tool") or ""
+        details = entry.get("args_summary") or entry.get("error") or ""
+        if not details and entry.get("duration_ms") is not None:
+            details = f"{entry['duration_ms']}ms"
+        table.add_row(ts, qid, evt, sec, tool_name, str(details)[:120])
+
+    console.print(table)
+
+
+def _parse_since(spec: str):
+    """Parse --since as ISO timestamp or relative (e.g. '1h', '30m', '2d')."""
+    from datetime import datetime, timedelta, timezone
+
+    spec = spec.strip()
+    if not spec:
+        return None
+
+    # Relative: <number><unit> where unit in s/m/h/d
+    if spec[-1].lower() in {"s", "m", "h", "d"} and spec[:-1].isdigit():
+        n = int(spec[:-1])
+        unit = spec[-1].lower()
+        delta = {
+            "s": timedelta(seconds=n),
+            "m": timedelta(minutes=n),
+            "h": timedelta(hours=n),
+            "d": timedelta(days=n),
+        }[unit]
+        return datetime.now(timezone.utc) - delta
+
+    try:
+        when = datetime.fromisoformat(spec.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when
 
 
 @app.command()

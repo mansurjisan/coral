@@ -224,10 +224,12 @@ def _ordered_categories(
     return []
 
 
-def _keyword_classify(query: str) -> tuple[list[str], float] | None:
-    """Fast intent-based classification. Returns (categories, confidence) or None.
+def _keyword_classify(query: str) -> tuple[list[str], float, list[str]] | None:
+    """Fast intent-based classification.
 
-    Confidence is based on the number and specificity of keyword matches.
+    Returns (categories, confidence, matched_keywords) or None when the query
+    has no useful keyword signal. ``matched_keywords`` is the union of every
+    term that contributed to the decision, for surface in ``/route``.
     """
     query_lower = query.lower().strip()
     if not query_lower:
@@ -258,7 +260,8 @@ def _keyword_classify(query: str) -> tuple[list[str], float] | None:
     if len(categories) > 1:
         confidence *= 0.85
 
-    return categories, round(confidence, 2)
+    matched = data_matches + code_matches + workflow_matches
+    return categories, round(confidence, 2), matched
 
 
 SYNTHESIS_PROMPT = """\
@@ -295,7 +298,14 @@ class Orchestrator:
             "WORKFLOW": create_workflow_agent(workflow_model or model, mcp_bridge),
         }
         self.history: list[dict] = []
-        self.last_route_confidence: float = 0.0
+        self.last_route_decision: dict | None = None
+
+    @property
+    def last_route_confidence(self) -> float:
+        """Confidence of the last routing decision (0.0 if none yet)."""
+        if not self.last_route_decision:
+            return 0.0
+        return float(self.last_route_decision.get("confidence", 0.0))
 
     # Follow-up phrases that reference prior context
     _FOLLOW_UP_PATTERNS = [
@@ -339,8 +349,14 @@ class Orchestrator:
         # Try keyword route first
         kw_result = _keyword_classify(query)
         if kw_result is not None:
-            categories, confidence = kw_result
-            self.last_route_confidence = confidence
+            categories, confidence, matched = kw_result
+            self.last_route_decision = {
+                "categories": list(categories),
+                "method": "keyword",
+                "confidence": confidence,
+                "matched_keywords": matched,
+                "query": query,
+            }
             logger.info("Keyword-routed query to: %s (confidence=%.2f)", categories, confidence)
             return categories
 
@@ -368,14 +384,26 @@ class Orchestrator:
         if not categories:
             logger.warning("Could not classify query, defaulting to DATA: %s", raw)
             categories = ["DATA"]
-            self.last_route_confidence = 0.3
+            method = "default"
+            confidence = 0.3
         else:
-            self.last_route_confidence = 0.7  # LLM classification is less certain
+            method = "llm"
+            confidence = 0.7  # LLM classification is less certain
+
+        self.last_route_decision = {
+            "categories": list(categories),
+            "method": method,
+            "confidence": confidence,
+            "matched_keywords": [],
+            "query": query,
+            "router_model": self.router_model,
+            "raw_response": raw,
+        }
 
         logger.info(
             "LLM-routed query to: %s (confidence=%.2f, model=%s)",
             categories,
-            self.last_route_confidence,
+            confidence,
             self.router_model,
         )
         return categories

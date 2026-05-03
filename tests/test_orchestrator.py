@@ -55,9 +55,10 @@ class TestKeywordClassify:
     def test_single_category(self, query, expected):
         result = _keyword_classify(query)
         assert result is not None
-        categories, confidence = result
+        categories, confidence, matched = result
         assert categories[0] == expected[0]
         assert 0 < confidence <= 1.0
+        assert isinstance(matched, list)
 
     @pytest.mark.parametrize(
         "query,expected_contains",
@@ -72,7 +73,7 @@ class TestKeywordClassify:
     def test_multi_category(self, query, expected_contains):
         result = _keyword_classify(query)
         assert result is not None
-        categories, confidence = result
+        categories, confidence, _matched = result
         for cat in expected_contains:
             assert cat in categories
 
@@ -86,7 +87,7 @@ class TestKeywordClassify:
     def test_multi_category_order(self, query, expected):
         result = _keyword_classify(query)
         assert result is not None
-        categories, _ = result
+        categories, _conf, _matched = result
         assert categories == expected
 
     def test_ambiguous_returns_none(self):
@@ -167,6 +168,66 @@ class TestOrchestratorClassify:
             result = await orch.classify("xyz")
 
         assert result == ["DATA"]
+
+
+class TestLastRouteDecision:
+    """The orchestrator records the routing decision for /route to read back."""
+
+    @pytest.fixture
+    def mock_bridge(self):
+        bridge = MagicMock()
+        bridge.tools = []
+        bridge.tool_server_map = {}
+        return bridge
+
+    @pytest.mark.asyncio
+    async def test_keyword_route_records_decision(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+
+        with patch("coral.agents.orchestrator.ollama"):
+            await orch.classify("What is the water level at Newport?")
+
+        decision = orch.last_route_decision
+        assert decision is not None
+        assert decision["method"] == "keyword"
+        assert "DATA" in decision["categories"]
+        assert decision["confidence"] > 0
+        assert "water level" in decision["matched_keywords"]
+        assert decision["query"].startswith("What is the water level")
+        # Backwards-compat property
+        assert orch.last_route_confidence == decision["confidence"]
+
+    @pytest.mark.asyncio
+    async def test_llm_route_records_decision(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        mock_response = MagicMock()
+        mock_response.message.content = "WORKFLOW, CODE"
+
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = mock_response
+            await orch.classify("Hello there")
+
+        decision = orch.last_route_decision
+        assert decision is not None
+        assert decision["method"] == "llm"
+        assert decision["matched_keywords"] == []
+        assert "router_model" in decision
+
+    @pytest.mark.asyncio
+    async def test_default_route_records_decision(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        mock_response = MagicMock()
+        mock_response.message.content = "no idea here"
+
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = mock_response
+            await orch.classify("xyz")
+
+        decision = orch.last_route_decision
+        assert decision is not None
+        assert decision["method"] == "default"
+        assert decision["categories"] == ["DATA"]
+        assert decision["confidence"] == 0.3
 
 
 # ── Orchestrator chat flow tests ──
