@@ -257,3 +257,58 @@ class TestBaseAgent:
         tool_msgs = [m for m in agent.history if m.get("role") == "tool"]
         assert "Error calling test_tool" in tool_msgs[0]["content"]
         assert "stofs" in tool_msgs[0]["content"]
+
+    def test_ask_section_tool_exposed_when_wired(self, mock_bridge):
+        agent = BaseAgent(
+            "data",
+            "model",
+            "prompt",
+            mock_bridge,
+            tool_filter=["test_server"],
+            delegate_fn=AsyncMock(),
+            delegate_peers=["CODE", "WORKFLOW"],
+        )
+        tools = {t["function"]["name"]: t for t in agent.tools}
+        assert "ask_section" in tools
+        enum = tools["ask_section"]["function"]["parameters"]["properties"]["section"]["enum"]
+        assert enum == ["CODE", "WORKFLOW"]
+
+    def test_ask_section_not_exposed_without_delegate(self, mock_bridge):
+        agent = BaseAgent("data", "model", "prompt", mock_bridge, tool_filter=["test_server"])
+        names = {t["function"]["name"] for t in agent.tools}
+        assert "ask_section" not in names
+
+    @pytest.mark.asyncio
+    async def test_delegation_tool_routes_to_delegate_fn(self, mock_bridge):
+        """An ask_section call must invoke delegate_fn, not the MCP bridge."""
+        delegate = AsyncMock(return_value="peer says hi")
+        agent = BaseAgent(
+            "data",
+            "model",
+            "prompt",
+            mock_bridge,
+            tool_filter=["test_server"],
+            delegate_fn=delegate,
+            delegate_peers=["CODE"],
+        )
+
+        tool_response = MagicMock()
+        tc = MagicMock()
+        tc.function.name = "ask_section"
+        tc.function.arguments = {"section": "CODE", "query": "explain the CFL error"}
+        tool_response.message.tool_calls = [tc]
+        tool_response.message.content = ""
+
+        text_response = MagicMock()
+        text_response.message.tool_calls = None
+        text_response.message.content = "done"
+
+        with patch("coral.agents.base.ollama") as mock_ollama:
+            mock_ollama.chat.side_effect = [tool_response, text_response]
+            result = await agent.chat("ask the code section")
+
+        assert result == "done"
+        delegate.assert_awaited_once_with("CODE", "explain the CFL error")
+        mock_bridge.call_tool.assert_not_called()
+        tool_msgs = [m for m in agent.history if m.get("role") == "tool"]
+        assert "peer says hi" in tool_msgs[0]["content"]

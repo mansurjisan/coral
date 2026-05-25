@@ -19,6 +19,10 @@ MAX_TOOL_ITERATIONS = 10
 MAX_HISTORY_CHARS = 80_000  # ~20K tokens at ~4 chars/token
 MAX_LLM_RETRIES = 1  # Retry once on transient Ollama failures
 
+# Virtual tool name an agent uses to consult a peer section. Intercepted in the
+# tool loop and routed to the orchestrator's delegate() rather than to MCP.
+ASK_SECTION_TOOL = "ask_section"
+
 
 def _ollama_chat_with_retry(*, model, messages, tools=None, max_retries=MAX_LLM_RETRIES):
     """Call ollama.chat with retry on transient errors."""
@@ -121,6 +125,8 @@ class BaseAgent:
         mcp_bridge: MCPBridge,
         tool_filter: list[str] | None = None,
         on_tool_call: Callable | None = None,
+        delegate_fn: Callable | None = None,
+        delegate_peers: list[str] | None = None,
     ):
         self.name = name
         self.model = model
@@ -128,19 +134,69 @@ class BaseAgent:
         self.mcp_bridge = mcp_bridge
         self.tool_filter = tool_filter  # List of server names this agent can use
         self.on_tool_call = on_tool_call
+        # Delegation: async callable(to_section, query) -> str, wired by the
+        # orchestrator. When set (with peers), the agent gets an ask_section tool.
+        self.delegate_fn = delegate_fn
+        self.delegate_peers = list(delegate_peers) if delegate_peers else []
         self.history: list[dict] = []
         self.last_stats: dict = {}
 
     @property
     def tools(self) -> list[dict]:
-        """Return only the tools this agent is allowed to use."""
+        """Return only the tools this agent is allowed to use.
+
+        Always returns a fresh list. When delegation is wired, an ``ask_section``
+        tool is appended so the model can consult a peer section.
+        """
         if self.tool_filter is None:
-            return self.mcp_bridge.tools
-        return [
-            t
-            for t in self.mcp_bridge.tools
-            if self.mcp_bridge.tool_server_map.get(t["function"]["name"]) in self.tool_filter
-        ]
+            allowed = list(self.mcp_bridge.tools)
+        else:
+            allowed = [
+                t
+                for t in self.mcp_bridge.tools
+                if self.mcp_bridge.tool_server_map.get(t["function"]["name"]) in self.tool_filter
+            ]
+        if self.delegate_fn and self.delegate_peers:
+            allowed.append(self._ask_section_tool_def())
+        return allowed
+
+    def _ask_section_tool_def(self) -> dict:
+        """Tool schema for delegating a sub-question to a peer section."""
+        return {
+            "type": "function",
+            "function": {
+                "name": ASK_SECTION_TOOL,
+                "description": (
+                    "Consult a specialized peer section for information or actions outside "
+                    "your own tools. Returns the peer's answer as text. Use only when needed."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "section": {
+                            "type": "string",
+                            "enum": self.delegate_peers,
+                            "description": "Which peer section to consult.",
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "A self-contained question; the peer does not see this conversation.",
+                        },
+                    },
+                    "required": ["section", "query"],
+                },
+            },
+        }
+
+    async def _run_delegation(self, tool_args: dict) -> str:
+        """Route an ask_section tool call to the wired delegate function."""
+        args = tool_args or {}
+        section = (args.get("section") or "").strip()
+        query = (args.get("query") or "").strip()
+        if not section or not query:
+            return f"{ASK_SECTION_TOOL} requires both 'section' and 'query'."
+        logger.info("[%s] Delegating to %s: %s", self.name, section, query[:80])
+        return await self.delegate_fn(section, query)
 
     def _peer_server_hint(self, tool_name: str) -> str:
         """Return a one-line hint listing peer servers for this agent.
@@ -196,14 +252,17 @@ class BaseAgent:
                     tool_args = tool_call.function.arguments
                     logger.info("[%s] Calling tool: %s(%s)", self.name, tool_name, tool_args)
 
-                    try:
-                        result = await self.mcp_bridge.call_tool(tool_name, tool_args)
-                    except Exception as e:
-                        result = f"Error calling {tool_name}: {e}"
-                        hint = self._peer_server_hint(tool_name)
-                        if hint:
-                            result += f"\n{hint}"
-                        logger.error(result)
+                    if tool_name == ASK_SECTION_TOOL and self.delegate_fn is not None:
+                        result = await self._run_delegation(tool_args)
+                    else:
+                        try:
+                            result = await self.mcp_bridge.call_tool(tool_name, tool_args)
+                        except Exception as e:
+                            result = f"Error calling {tool_name}: {e}"
+                            hint = self._peer_server_hint(tool_name)
+                            if hint:
+                                result += f"\n{hint}"
+                            logger.error(result)
 
                     if self.on_tool_call:
                         self.on_tool_call(tool_name, tool_args, result)
@@ -269,14 +328,17 @@ class BaseAgent:
                     tool_args = tool_call.function.arguments
                     logger.info("[%s] Calling tool: %s(%s)", self.name, tool_name, tool_args)
 
-                    try:
-                        result = await self.mcp_bridge.call_tool(tool_name, tool_args)
-                    except Exception as e:
-                        result = f"Error calling {tool_name}: {e}"
-                        hint = self._peer_server_hint(tool_name)
-                        if hint:
-                            result += f"\n{hint}"
-                        logger.error(result)
+                    if tool_name == ASK_SECTION_TOOL and self.delegate_fn is not None:
+                        result = await self._run_delegation(tool_args)
+                    else:
+                        try:
+                            result = await self.mcp_bridge.call_tool(tool_name, tool_args)
+                        except Exception as e:
+                            result = f"Error calling {tool_name}: {e}"
+                            hint = self._peer_server_hint(tool_name)
+                            if hint:
+                                result += f"\n{hint}"
+                            logger.error(result)
 
                     if self.on_tool_call:
                         self.on_tool_call(tool_name, tool_args, result)

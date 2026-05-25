@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import partial
 
 import ollama
 
-from coral.agents.base import _prune_history
+from coral.agents.base import ASK_SECTION_TOOL, _prune_history
 from coral.audit import record_audit_event, request_context, set_request_route
 from coral.agents.code_agent import create_code_agent
 from coral.agents.data_agent import create_data_agent
@@ -15,6 +19,45 @@ from coral.agents.workflow_agent import create_workflow_agent
 from coral.mcp_bridge import MCPBridge
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of agents active on the delegation stack at once (the top-level
+# routed agent plus any nested delegations). Bounds cost and recursion.
+MAX_DELEGATION_DEPTH = 3
+
+# Tracks the chain of sections currently executing so delegate() can reject
+# re-entering an agent instance already on the stack (which would corrupt its
+# in-progress history) and cap delegation depth.
+_DELEGATION_STACK: ContextVar[tuple[str, ...]] = ContextVar("coral_delegation_stack", default=())
+
+
+@contextmanager
+def _delegation_scope(section: str):
+    """Push a section onto the delegation stack for the duration of its run."""
+    stack = _DELEGATION_STACK.get()
+    token = _DELEGATION_STACK.set(stack + (section,))
+    try:
+        yield
+    finally:
+        _DELEGATION_STACK.reset(token)
+
+
+def _delegation_enabled() -> bool:
+    """Whether agent-to-agent delegation is active (off via CORAL_DELEGATION)."""
+    return os.environ.get("CORAL_DELEGATION", "on").strip().lower() not in {"0", "false", "off", "no"}
+
+
+def _delegation_prompt(peers: list[str]) -> str:
+    """System-prompt note telling an agent how and when to consult peers."""
+    peer_list = ", ".join(peers)
+    return (
+        "\n\nCOLLABORATION:\n"
+        f"You can consult a specialized peer section: {peer_list}. "
+        f"Call {ASK_SECTION_TOOL}(section, query) only when a request needs information or "
+        "actions outside your own tools (e.g. observational data you cannot fetch, or "
+        "source/docs you cannot access). Do not delegate work your own tools can do. "
+        "Ask one self-contained question — the peer does not see this conversation."
+    )
+
 
 ROUTER_SYSTEM_PROMPT = """\
 You are a query router for CORAL, an AI system for NOAA ocean scientists.
@@ -299,6 +342,25 @@ class Orchestrator:
         }
         self.history: list[dict] = []
         self.last_route_decision: dict | None = None
+        self._wire_delegation()
+
+    def _wire_delegation(self) -> None:
+        """Give each section agent an ask_section tool that consults its peers.
+
+        Wires the (otherwise inert) delegate() method into every agent and
+        appends a short collaboration note to each system prompt. No-op when
+        delegation is disabled via CORAL_DELEGATION.
+        """
+        if not _delegation_enabled():
+            return
+        sections = list(self.agents)
+        for section, agent in self.agents.items():
+            peers = [s for s in sections if s != section]
+            if not peers:
+                continue
+            agent.delegate_fn = partial(self.delegate, section)
+            agent.delegate_peers = peers
+            agent.system_prompt = agent.system_prompt + _delegation_prompt(peers)
 
     @property
     def last_route_confidence(self) -> float:
@@ -432,7 +494,8 @@ class Orchestrator:
                         section=categories[0],
                         section_model=agent.model,
                     )
-                    response = await agent.chat(user_message)
+                    with _delegation_scope(categories[0]):
+                        response = await agent.chat(user_message)
                 else:
                     # Multi-agent: sequential execution, pass context forward
                     responses = []
@@ -446,7 +509,8 @@ class Orchestrator:
                             section_model=agent.model,
                         )
                         try:
-                            result = await agent.chat(accumulated_context)
+                            with _delegation_scope(cat):
+                                result = await agent.chat(accumulated_context)
                         except Exception as agent_exc:
                             logger.error("Agent %s failed: %s", cat, agent_exc)
                             record_audit_event(
@@ -516,9 +580,10 @@ class Orchestrator:
             if len(categories) == 1:
                 agent = self.agents[categories[0]]
                 full_content = ""
-                async for token in agent.chat_stream(user_message):
-                    full_content += token
-                    yield token
+                with _delegation_scope(categories[0]):
+                    async for token in agent.chat_stream(user_message):
+                        full_content += token
+                        yield token
                 self.history.append({"role": "assistant", "content": full_content})
             else:
                 # Multi-agent: run agents normally, then stream synthesis
@@ -528,7 +593,8 @@ class Orchestrator:
                 for cat in categories:
                     agent = self.agents[cat]
                     try:
-                        result = await agent.chat(accumulated_context)
+                        with _delegation_scope(cat):
+                            result = await agent.chat(accumulated_context)
                     except Exception as agent_exc:
                         logger.error("Agent %s failed: %s", cat, agent_exc)
                         result = f"[{cat} section unavailable: {agent_exc}]"
@@ -570,31 +636,46 @@ class Orchestrator:
             record_audit_event("query_end", success=True)
 
     async def delegate(self, from_section: str, to_section: str, query: str) -> str:
-        """Allow one agent to delegate a sub-query to another agent.
+        """Run a sub-query on a peer agent and return its answer.
 
-        Example: WORKFLOW agent needs observation data from DATA agent.
-        The delegation happens transparently without going through the
-        full classify/synthesize pipeline.
+        Wired into each agent as the ``ask_section`` tool. Bypasses the
+        classify/synthesize pipeline. Guards against consulting your own
+        section, re-entering an agent already running on the delegation
+        stack (which would corrupt its history), and unbounded depth.
+        Failures are returned as text so the calling model can recover.
         """
+        to_section = (to_section or "").strip().upper()
+        from_upper = (from_section or "").strip().upper()
+
         if to_section not in self.agents:
-            return f"Unknown section: {to_section}"
+            available = ", ".join(self.agents)
+            return f"Cannot consult unknown section '{to_section}'. Available: {available}."
+        if to_section == from_upper:
+            return f"Cannot consult your own section ({to_section}); use your own tools."
+
+        stack = _DELEGATION_STACK.get()
+        if to_section in stack:
+            return f"[{to_section} is already handling this request; continue with what you have.]"
+        if len(stack) >= MAX_DELEGATION_DEPTH:
+            return f"[Delegation limit reached; cannot consult {to_section}. Continue with what you have.]"
 
         target = self.agents[to_section]
-        logger.info("Delegation: %s -> %s: %s", from_section, to_section, query[:80])
+        logger.info("Delegation: %s -> %s: %s", from_upper or "?", to_section, query[:80])
         record_audit_event(
             "delegation",
-            from_section=from_section,
+            from_section=from_upper,
             to_section=to_section,
             query_chars=len(query),
         )
 
         try:
-            result = await target.chat(query)
+            with _delegation_scope(to_section):
+                result = await target.chat(query)
             target.clear_history()  # Don't pollute the target's session
             return result
         except Exception as e:
             logger.error("Delegation to %s failed: %s", to_section, e)
-            return f"Delegation to {to_section} failed: {e}"
+            return f"Consulting {to_section} failed: {e}"
 
     def reset(self):
         """Clear all agent histories."""

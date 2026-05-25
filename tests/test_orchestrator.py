@@ -4,7 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from coral.agents.orchestrator import Orchestrator, _keyword_classify, create_orchestrator
+from coral.agents.orchestrator import (
+    MAX_DELEGATION_DEPTH,
+    Orchestrator,
+    _DELEGATION_STACK,
+    _delegation_scope,
+    _keyword_classify,
+    create_orchestrator,
+)
 from coral.config import set_cli_model
 
 
@@ -539,3 +546,93 @@ class TestAgentToolFiltering:
 
         agent = BaseAgent("test", "model", "prompt", bridge, tool_filter=None)
         assert len(agent.tools) == 2
+
+
+# ── Agent-to-agent delegation tests ──
+
+
+class TestDelegation:
+    """The orchestrator wires delegate() into each agent as an ask_section tool."""
+
+    @pytest.fixture
+    def mock_bridge(self):
+        bridge = MagicMock()
+        bridge.tools = []
+        bridge.tool_server_map = {}
+        bridge.call_tool = AsyncMock(return_value="tool result")
+        return bridge
+
+    def test_wiring_gives_agents_their_peers(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        data = orch.agents["DATA"]
+        assert data.delegate_fn is not None
+        assert set(data.delegate_peers) == {"CODE", "WORKFLOW"}
+        names = {t["function"]["name"] for t in data.tools}
+        assert "ask_section" in names
+
+    def test_delegation_disabled_via_env(self, mock_bridge, monkeypatch):
+        monkeypatch.setenv("CORAL_DELEGATION", "off")
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        data = orch.agents["DATA"]
+        assert data.delegate_fn is None
+        names = {t["function"]["name"] for t in data.tools}
+        assert "ask_section" not in names
+
+    @pytest.mark.asyncio
+    async def test_delegate_runs_peer_and_clears_history(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+
+        peer_response = MagicMock()
+        peer_response.message.tool_calls = None
+        peer_response.message.content = "Peer answer."
+
+        with patch("coral.agents.base.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = peer_response
+            result = await orch.delegate("DATA", "CODE", "explain the CFL condition")
+
+        assert result == "Peer answer."
+        # Target session must not retain the delegated turn.
+        assert orch.agents["CODE"].history == []
+
+    @pytest.mark.asyncio
+    async def test_delegate_accepts_lowercase_section(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        peer_response = MagicMock()
+        peer_response.message.tool_calls = None
+        peer_response.message.content = "ok"
+        with patch("coral.agents.base.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = peer_response
+            result = await orch.delegate("DATA", "code", "q")
+        assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_delegate_unknown_section(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        result = await orch.delegate("DATA", "NONSENSE", "q")
+        assert "unknown section" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_delegate_to_self_refused(self, mock_bridge):
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        result = await orch.delegate("DATA", "DATA", "q")
+        assert "your own section" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_delegate_reentrancy_refused(self, mock_bridge):
+        """Cannot delegate into a section already on the call stack."""
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        with _delegation_scope("CODE"):
+            result = await orch.delegate("DATA", "CODE", "q")
+        assert "already handling" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_delegate_depth_limit_refused(self, mock_bridge):
+        """Once the delegation stack is full, further delegation is refused."""
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        full_stack = tuple(f"X{i}" for i in range(MAX_DELEGATION_DEPTH))
+        token = _DELEGATION_STACK.set(full_stack)
+        try:
+            result = await orch.delegate("DATA", "CODE", "q")
+        finally:
+            _DELEGATION_STACK.reset(token)
+        assert "limit reached" in result.lower()
