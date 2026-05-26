@@ -265,6 +265,82 @@ class TestLastRouteDecision:
         assert decision["confidence"] == 0.3
 
 
+class TestConfidenceEscalation:
+    """Ambiguous (low-confidence) multi-section keyword routes defer to the LLM."""
+
+    @pytest.fixture
+    def mock_bridge(self):
+        bridge = MagicMock()
+        bridge.tools = []
+        bridge.tool_server_map = {}
+        return bridge
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_multi_route_escalates_to_llm(self, mock_bridge):
+        # "explain the tide" -> keyword route [DATA, CODE] at confidence 0.59.
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        llm_response = MagicMock()
+        llm_response.message.content = "DATA"
+
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = llm_response
+            result = await orch.classify("explain the tide")
+
+        mock_ollama.chat.assert_called_once()
+        assert result == ["DATA"]
+        decision = orch.last_route_decision
+        assert decision["method"] == "llm"
+        assert decision["escalated_from_keyword"]["categories"] == ["DATA", "CODE"]
+
+    @pytest.mark.asyncio
+    async def test_strong_multi_route_skips_llm(self, mock_bridge):
+        # Confident cross-domain query (0.77) is trusted without the LLM.
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            result = await orch.classify("Plot the water levels from this NetCDF file")
+
+        mock_ollama.chat.assert_not_called()
+        assert set(result) == {"DATA", "CODE"}
+        assert orch.last_route_decision["method"] == "keyword"
+
+    @pytest.mark.asyncio
+    async def test_single_category_never_escalates(self, mock_bridge):
+        # Single-section route is trusted even below the threshold (conf 0.6).
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            result = await orch.classify("What is the tide?")
+
+        mock_ollama.chat.assert_not_called()
+        assert result == ["DATA"]
+        assert orch.last_route_decision["method"] == "keyword"
+
+    @pytest.mark.asyncio
+    async def test_keyword_fallback_when_llm_unhelpful(self, mock_bridge):
+        # Escalated, but the LLM returns nothing usable -> keep the keyword guess.
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        llm_response = MagicMock()
+        llm_response.message.content = "i'm not sure"
+
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = llm_response
+            result = await orch.classify("explain the tide")
+
+        mock_ollama.chat.assert_called_once()
+        assert set(result) == {"DATA", "CODE"}
+        assert orch.last_route_decision["method"] == "keyword_fallback"
+
+    @pytest.mark.asyncio
+    async def test_env_var_can_disable_escalation(self, mock_bridge, monkeypatch):
+        monkeypatch.setenv("CORAL_ROUTE_MIN_CONFIDENCE", "0")
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            result = await orch.classify("explain the tide")
+
+        mock_ollama.chat.assert_not_called()
+        assert set(result) == {"DATA", "CODE"}
+        assert orch.last_route_decision["method"] == "keyword"
+
+
 # ── Orchestrator chat flow tests ──
 
 

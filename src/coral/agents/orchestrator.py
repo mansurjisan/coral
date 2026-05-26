@@ -60,6 +60,24 @@ def _delegation_prompt(peers: list[str]) -> str:
     )
 
 
+# Below this keyword-routing confidence, a *multi-section* route is treated as
+# ambiguous and escalated to the LLM classifier for a second opinion. Keyword
+# routing decided this regardless of confidence before, so the LLM almost never
+# ran. Set CORAL_ROUTE_MIN_CONFIDENCE=0 to always trust keyword routing.
+DEFAULT_ROUTE_MIN_CONFIDENCE = 0.7
+
+
+def _route_min_confidence() -> float:
+    """Minimum keyword confidence to accept a multi-section route without the LLM."""
+    raw = os.environ.get("CORAL_ROUTE_MIN_CONFIDENCE", "")
+    if not raw:
+        return DEFAULT_ROUTE_MIN_CONFIDENCE
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except ValueError:
+        return DEFAULT_ROUTE_MIN_CONFIDENCE
+
+
 ROUTER_SYSTEM_PROMPT = """\
 You are a query router for CORAL, an AI system for NOAA ocean scientists.
 
@@ -430,30 +448,44 @@ class Orchestrator:
     async def classify(self, query: str) -> list[str]:
         """Classify user query into agent categories.
 
-        Uses fast keyword matching first, falls back to LLM for ambiguous queries.
-        For follow-up queries, includes prior context in classification.
+        Fast keyword matching decides clear queries. A *multi-section* keyword
+        result below CORAL_ROUTE_MIN_CONFIDENCE is treated as ambiguous and
+        escalated to the LLM classifier (which sees the whole sentence) for a
+        second opinion; single-section keyword routes are always trusted. The
+        LLM is also the fallback when keywords match nothing. For follow-ups,
+        prior context is included in the LLM classification.
         """
-        # Try keyword route first
+        # Try keyword route first.
+        keyword_guess: tuple[list[str], float, list[str]] | None = None
         kw_result = _keyword_classify(query)
         if kw_result is not None:
             categories, confidence, matched = kw_result
-            self.last_route_decision = {
-                "categories": list(categories),
-                "method": "keyword",
-                "confidence": confidence,
-                "matched_keywords": matched,
-                "query": query,
-            }
-            logger.info("Keyword-routed query to: %s (confidence=%.2f)", categories, confidence)
-            return categories
+            if len(categories) == 1 or confidence >= _route_min_confidence():
+                self.last_route_decision = {
+                    "categories": list(categories),
+                    "method": "keyword",
+                    "confidence": confidence,
+                    "matched_keywords": matched,
+                    "query": query,
+                }
+                logger.info("Keyword-routed query to: %s (confidence=%.2f)", categories, confidence)
+                return categories
+            # Ambiguous multi-section route — get a second opinion from the LLM,
+            # but keep the keyword guess as a fallback.
+            keyword_guess = (categories, confidence, matched)
+            logger.info(
+                "Ambiguous keyword route %s (confidence=%.2f); escalating to LLM",
+                categories,
+                confidence,
+            )
 
-        # For follow-ups, include prior context in the classification
+        # For follow-ups, include prior context in the classification.
         prior_context = self._is_follow_up(query)
         classify_query = query
         if prior_context:
             classify_query = f"Previous answer: {prior_context[:500]}\n\nFollow-up: {query}"
 
-        # Fall back to LLM classification
+        # LLM classification.
         response = ollama.chat(
             model=self.router_model,
             messages=[
@@ -468,28 +500,42 @@ class Orchestrator:
         tokens = set(re.findall(r"[A-Z]+", raw))
         categories = [cat for cat in ["DATA", "CODE", "WORKFLOW"] if cat in tokens or f"{cat}S" in tokens]
 
-        if not categories:
+        matched_keywords: list[str] = []
+        if categories:
+            method = "llm"
+            confidence = 0.7  # LLM classification is less certain
+        elif keyword_guess is not None:
+            # LLM gave nothing usable; the ambiguous keyword guess still beats a
+            # blind DATA default.
+            categories, confidence, matched_keywords = keyword_guess
+            method = "keyword_fallback"
+            logger.info("LLM returned no category; falling back to keyword route: %s", categories)
+        else:
             logger.warning("Could not classify query, defaulting to DATA: %s", raw)
             categories = ["DATA"]
             method = "default"
             confidence = 0.3
-        else:
-            method = "llm"
-            confidence = 0.7  # LLM classification is less certain
 
-        self.last_route_decision = {
+        decision = {
             "categories": list(categories),
             "method": method,
             "confidence": confidence,
-            "matched_keywords": [],
+            "matched_keywords": matched_keywords,
             "query": query,
             "router_model": self.router_model,
             "raw_response": raw,
         }
+        if keyword_guess is not None:
+            decision["escalated_from_keyword"] = {
+                "categories": list(keyword_guess[0]),
+                "confidence": keyword_guess[1],
+            }
+        self.last_route_decision = decision
 
         logger.info(
-            "LLM-routed query to: %s (confidence=%.2f, model=%s)",
+            "LLM-routed query to: %s (method=%s, confidence=%.2f, model=%s)",
             categories,
+            method,
             confidence,
             self.router_model,
         )
