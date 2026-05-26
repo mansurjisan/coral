@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -11,6 +12,9 @@ import tempfile
 from mcp.server.fastmcp import FastMCP
 
 from coral.audit import with_tool_audit_payload
+from coral.policy import server_requires_sandbox
+
+logger = logging.getLogger(__name__)
 
 mcp = FastMCP("coral-viz")
 
@@ -63,8 +67,25 @@ def _resolve_sandbox_sif() -> str:
 
 
 def _sandbox_required() -> bool:
-    """Whether host-side execution is forbidden in this environment."""
-    return os.environ.get("CORAL_REQUIRE_SANDBOX", "").lower() in {"1", "true", "yes", "on"}
+    """Whether host-side Python execution is forbidden in this environment.
+
+    True when the policy manifest demands sandboxing for the ``viz`` server in
+    the active CORAL_ENV (e.g. ``ursa``), or when forced via the
+    ``CORAL_REQUIRE_SANDBOX`` override. Previously this read only the override
+    env var, so the manifest's ``sandbox_required[ursa]=true`` was never
+    enforced and ``CORAL_ENV=ursa`` alone still permitted host execution.
+
+    Fails closed: if the policy cannot be resolved (e.g. an unrecognized
+    CORAL_ENV or an unreadable manifest), sandboxing is required rather than
+    silently allowing arbitrary host code.
+    """
+    if os.environ.get("CORAL_REQUIRE_SANDBOX", "").lower() in {"1", "true", "yes", "on"}:
+        return True
+    try:
+        return server_requires_sandbox("viz")
+    except Exception as exc:
+        logger.warning("Could not resolve viz sandbox policy; requiring sandbox: %s", exc)
+        return True
 
 
 def _is_sandbox_runtime_failure(stderr: str) -> bool:
