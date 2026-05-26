@@ -1,0 +1,43 @@
+query,expected
+What is the water level at The Battery?,DATA
+Are there any active hurricanes?,DATA
+Get SST from ERDDAP for the Gulf of Maine,DATA
+Inspect the NetCDF file output.nc,DATA
+What is the current tide at station 8518750?,DATA
+What is the streamflow at this USGS gauge?,DATA
+Show me the latest GOES satellite image,DATA
+What is the wave height at the buoy?,DATA
+Get wind observations at the weather station,DATA
+What is the STOFS forecast at The Battery?,DATA
+What is the storm surge forecast for Tampa?,DATA
+Convert this datum to NAVD88,DATA
+Show me the catalog of stations,DATA
+What is the zipcode for the station?,DATA
+What does schism_init do?,CODE
+Explain the wetting drying algorithm in ADCIRC,CODE
+What parameters are in the core namelist?,CODE
+How does the barotropic solver work?,CODE
+Show me the source code for the time stepping,CODE
+Explain the hydrological cycle,CODE
+Why did my Slurm job fail?,WORKFLOW
+Show me my recent jobs,WORKFLOW
+What tasks are aborted in the stofs suite?,WORKFLOW
+Read the log for job 12345,WORKFLOW
+Set up a SCHISM experiment,WORKFLOW
+Submit experiment to Slurm,WORKFLOW
+Check the run status of my experiment,WORKFLOW
+How much scratch space am I using?,WORKFLOW
+Show my disk quota,WORKFLOW
+What's my FairShare status?,WORKFLOW
+What groups am I in?,WORKFLOW
+What partitions are available?,WORKFLOW
+Plot the water levels from this NetCDF file,DATA|CODE
+"Compare STOFS forecast against observations, then plot it",DATA|CODE
+"My Slurm job failed, explain the error from the docs",WORKFLOW|CODE
+Set up a UFS experiment and plot the outputs,WORKFLOW|CODE
+"Tell me about STOFS",LLM
+"Hello, how are you?",LLM
+What is the biological productivity here?,LLM
+Schedule my surgery please,LLM
+What is the wavelength of the signal?,LLM
+Thanks for your help,LLM

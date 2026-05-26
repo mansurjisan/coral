@@ -164,6 +164,34 @@ class TestOrchestratorClassify:
         assert "CODE" in result
 
     @pytest.mark.asyncio
+    async def test_llm_substring_does_not_inject_category(self, mock_bridge):
+        """A reply mentioning 'DECODE' must not be read as the CODE category."""
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+
+        mock_response = MagicMock()
+        mock_response.message.content = "DECODE THE DATA"
+
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = mock_response
+            result = await orch.classify("zzz")  # no keyword match -> LLM path
+
+        assert result == ["DATA"]
+
+    @pytest.mark.asyncio
+    async def test_llm_plural_category_accepted(self, mock_bridge):
+        """A pluralized category name ('WORKFLOWS') is still recognized."""
+        orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
+
+        mock_response = MagicMock()
+        mock_response.message.content = "WORKFLOWS"
+
+        with patch("coral.agents.orchestrator.ollama") as mock_ollama:
+            mock_ollama.chat.return_value = mock_response
+            result = await orch.classify("zzz")
+
+        assert result == ["WORKFLOW"]
+
+    @pytest.mark.asyncio
     async def test_llm_garbage_defaults_to_data(self, mock_bridge):
         orch = Orchestrator(model="test", mcp_bridge=mock_bridge)
 

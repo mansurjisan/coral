@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -239,9 +240,33 @@ _WORKFLOW_KEYWORDS = [
 _AMBIGUOUS_MODEL_TERMS = ["stofs", "schism", "adcirc", "forecast", "run"]
 
 
-def _matched_keywords(query_lower: str, keywords: list[str]) -> list[str]:
-    """Return keywords that appear in the query."""
-    return [kw for kw in keywords if kw in query_lower]
+def _compile_keyword(kw: str) -> re.Pattern:
+    """Compile a keyword into a word-boundary pattern.
+
+    Plain substring matching produced false positives — "log" fired inside
+    "catalog"/"hydrological", "code" inside "zipcode", "surge" inside
+    "surgery". We anchor each keyword so it only matches at token boundaries
+    (no flanking letters/digits), while still allowing a trailing plural "s"
+    (so the singular "hurricane" matches "hurricanes"). Keywords that begin or
+    end with punctuation (".nc", "co-ops") skip the adjacent boundary so they
+    still match as written.
+    """
+    left = r"(?<![a-z0-9])" if kw[:1].isalnum() else ""
+    # Allow an optional plural on alphabetic, non-"s"-ending keywords.
+    plural = "s?" if (kw[-1:].isalpha() and kw[-1:] != "s") else ""
+    right = r"(?![a-z0-9])" if kw[-1:].isalnum() else ""
+    return re.compile(left + re.escape(kw) + plural + right)
+
+
+_DATA_PATTERNS = [(kw, _compile_keyword(kw)) for kw in _DATA_KEYWORDS]
+_CODE_PATTERNS = [(kw, _compile_keyword(kw)) for kw in _CODE_KEYWORDS]
+_WORKFLOW_PATTERNS = [(kw, _compile_keyword(kw)) for kw in _WORKFLOW_KEYWORDS]
+_AMBIGUOUS_PATTERNS = [(kw, _compile_keyword(kw)) for kw in _AMBIGUOUS_MODEL_TERMS]
+
+
+def _matched_keywords(query_lower: str, patterns: list[tuple[str, re.Pattern]]) -> list[str]:
+    """Return keywords whose word-boundary pattern matches the query."""
+    return [kw for kw, pattern in patterns if pattern.search(query_lower)]
 
 
 def _ordered_categories(
@@ -278,10 +303,10 @@ def _keyword_classify(query: str) -> tuple[list[str], float, list[str]] | None:
     if not query_lower:
         return None
 
-    data_matches = _matched_keywords(query_lower, _DATA_KEYWORDS)
-    code_matches = _matched_keywords(query_lower, _CODE_KEYWORDS)
-    workflow_matches = _matched_keywords(query_lower, _WORKFLOW_KEYWORDS)
-    ambiguous_matches = _matched_keywords(query_lower, _AMBIGUOUS_MODEL_TERMS)
+    data_matches = _matched_keywords(query_lower, _DATA_PATTERNS)
+    code_matches = _matched_keywords(query_lower, _CODE_PATTERNS)
+    workflow_matches = _matched_keywords(query_lower, _WORKFLOW_PATTERNS)
+    ambiguous_matches = _matched_keywords(query_lower, _AMBIGUOUS_PATTERNS)
 
     has_data = bool(data_matches)
     has_code = bool(code_matches)
@@ -438,10 +463,10 @@ class Orchestrator:
         )
         raw = response.message.content.strip().upper()
 
-        categories = []
-        for cat in ["DATA", "CODE", "WORKFLOW"]:
-            if cat in raw:
-                categories.append(cat)
+        # Match whole tokens, not substrings: "DECODE THE DATA" must not inject
+        # CODE. A trailing plural ("WORKFLOWS") is still accepted.
+        tokens = set(re.findall(r"[A-Z]+", raw))
+        categories = [cat for cat in ["DATA", "CODE", "WORKFLOW"] if cat in tokens or f"{cat}S" in tokens]
 
         if not categories:
             logger.warning("Could not classify query, defaulting to DATA: %s", raw)
