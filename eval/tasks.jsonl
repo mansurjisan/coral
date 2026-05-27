@@ -1,0 +1,20 @@
+# CORAL evaluation benchmark (seed). One JSON task per line; '#' lines ignored.
+# Deterministic signals: expected route (sections) + expected tool substrings.
+# Answer substrings are left empty here because live NOAA data varies run to run.
+# Grow this set and add an audit-log-mined held-out split before reporting.
+{"id": "data-battery-wl", "query": "What is the current water level at The Battery, NYC?", "sections": ["DATA"], "expect_tools": ["coops_"], "kind": "single"}
+{"id": "data-active-hurricanes", "query": "Are there any active hurricanes in the Atlantic right now?", "sections": ["DATA"], "expect_tools": ["nhc_"], "kind": "single"}
+{"id": "data-stofs-forecast", "query": "What is the STOFS storm surge forecast at The Battery?", "sections": ["DATA"], "expect_tools": ["stofs_"], "kind": "single", "notes": "ambiguous term 'stofs' disambiguated by 'forecast at' -> DATA"}
+{"id": "data-erddap-sst", "query": "Get satellite sea surface temperature from ERDDAP for the Gulf of Maine", "sections": ["DATA"], "expect_tools": ["erddap_"], "kind": "single"}
+{"id": "data-usgs-streamflow", "query": "What is the current streamflow at USGS gauge 01646500?", "sections": ["DATA"], "expect_tools": ["usgs_"], "kind": "single"}
+{"id": "data-ww3-waves", "query": "What is the significant wave height at buoy 41001?", "sections": ["DATA"], "expect_tools": ["ww3_"], "kind": "single"}
+{"id": "data-goes-image", "query": "Show me the latest GOES-East satellite image", "sections": ["DATA"], "expect_tools": ["goes_"], "kind": "single"}
+{"id": "data-netcdf-inspect", "query": "Inspect the NetCDF file /scratch/out.nc and list its variables", "sections": ["DATA"], "expect_tools": ["inspect_netcdf"], "kind": "single"}
+{"id": "code-schism-init", "query": "What does the subroutine schism_init do?", "sections": ["CODE"], "expect_tools": ["search_documentation"], "kind": "single", "notes": "ambiguous term 'schism' disambiguated by 'what does ... do' -> CODE"}
+{"id": "code-explain-algo", "query": "Explain the wetting and drying algorithm used in ADCIRC", "sections": ["CODE"], "expect_tools": ["search_documentation"], "kind": "single"}
+{"id": "code-plot", "query": "Plot y = x^2 for x from 0 to 10 and save the figure", "sections": ["CODE"], "expect_tools": ["execute_python"], "kind": "single"}
+{"id": "wf-recent-jobs", "query": "Show me my recent Slurm jobs", "sections": ["WORKFLOW"], "expect_tools": ["get_my_jobs"], "kind": "single"}
+{"id": "wf-aborted-ecflow", "query": "What tasks are aborted in the stofs ecFlow suite?", "sections": ["WORKFLOW"], "expect_tools": ["get_aborted_tasks"], "kind": "single"}
+{"id": "wf-diagnose-job", "query": "Why did my Slurm job 12345 fail?", "sections": ["WORKFLOW"], "expect_tools": ["diagnose_job_failure"], "kind": "single"}
+{"id": "cross-data-code-plot-wl", "query": "Get the water levels at The Battery and plot a time series", "sections": ["DATA", "CODE"], "expect_tools": ["coops_", "execute_python"], "kind": "cross"}
+{"id": "cross-wf-code-cfl", "query": "My STOFS run failed. Read the job log and explain the CFL error from the docs", "sections": ["WORKFLOW", "CODE"], "expect_tools": ["search_documentation"], "kind": "cross", "notes": "workflow log-read tool varies (read_job_log/diagnose); CODE half reliably calls search_documentation"}

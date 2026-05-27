@@ -1667,6 +1667,68 @@ def index_workflow(
     console.print(f"\n[bold green]Indexed {total} total chunks from {workflow_dir}[/]")
 
 
+@app.command(name="eval")
+def eval_cmd(
+    tasks: str = typer.Option("eval/tasks.jsonl", "--tasks", help="Benchmark task set (JSONL)"),
+    config: str = typer.Option("coral_config.json", help="MCP config path"),
+    mode: str = typer.Option("multi", help="Agent mode: 'multi' or 'single' (run both to ablate)"),
+    model: str = typer.Option("", help="Ollama model name (default: CORAL_MODEL or qwen3:32b)"),
+    output_format: str = typer.Option("table", "--format", help="table | json"),
+    save: str = typer.Option("", "--save", help="Write full results JSON to this path"),
+):
+    """Run the evaluation benchmark through CORAL and report routing/task metrics.
+
+    Run once with --mode single and once with --mode multi to produce the
+    single-vs-multi ablation. Requires a reachable Ollama and MCP servers.
+    """
+    from coral.eval import aggregate, make_agent_run_fn, render_table, results_to_json, run_suite
+    from coral.eval.tasks import load_tasks
+    from coral.mcp_bridge import MCPBridge
+
+    set_cli_model(model)
+    resolved_model = get_model()
+    task_list = load_tasks(tasks)
+    console.print(f"[dim]Loaded {len(task_list)} tasks from {tasks}[/]")
+
+    async def run():
+        logging.getLogger("mcp").setLevel(logging.WARNING)
+        _auto_detect_ollama()
+        bridge = MCPBridge(config)
+        with Status("🪸 [cyan]Connecting to MCP servers...[/]", console=console, spinner="dots"):
+            await bridge.connect_all()
+
+        if mode == "single":
+            from coral.agent import CoralAgent
+
+            agent = CoralAgent(model=resolved_model, mcp_bridge=bridge)
+        else:
+            from coral.agents.orchestrator import create_orchestrator
+
+            agent = create_orchestrator(model=resolved_model, mcp_bridge=bridge)
+
+        run_fn = make_agent_run_fn(agent)
+        results = []
+        with Status("🪸 [cyan]Running benchmark...[/]", console=console, spinner="dots") as status:
+            for i, task in enumerate(task_list, 1):
+                status.update(f"🪸 [cyan]Running {i}/{len(task_list)}: {task.id}[/]")
+                results.extend(await run_suite([task], run_fn))
+
+        agg = aggregate(results)
+        if output_format == "json":
+            console.print_json(data=results_to_json(results, agg))
+        else:
+            render_table(agg, console)
+        if save:
+            from pathlib import Path as _Path
+
+            _Path(save).write_text(json.dumps(results_to_json(results, agg), indent=2), encoding="utf-8")
+            console.print(f"[green]Saved results to {save}[/]")
+
+        await bridge.close()
+
+    asyncio.run(run())
+
+
 @app.command()
 def serve(
     model: str = typer.Option("", help="Ollama model name (default: CORAL_MODEL or qwen3:32b)"),
