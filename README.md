@@ -1,7 +1,7 @@
 <h1 align="center">🪸 CORAL — Coastal Ocean Research AI Layer</h1>
 
 <p align="center">
-  <b>A self-hosted AI agent for NOAA HPC that connects local LLMs to ocean data,<br>scientific documentation, and HPC workflows entirely within NOAA's network.</b>
+  <b>A domain-specific AI agent for coastal ocean and wave forecasting —<br>connecting open-weight LLMs to NOAA data, model source code, and HPC workflows, entirely within your network.</b>
 </p>
 
 <p align="center">
@@ -12,14 +12,22 @@
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/protocol-MCP-purple.svg" alt="MCP"></a>
 </p>
 
+## Domain & Scope
+
+CORAL is built for coastal hazards and forecasting: water levels and tides, storm surge, hurricanes, waves, and river discharge — together with the models that predict them (SCHISM, ADCIRC, WW3, UFS-Coastal) and the operational workflows that run them (ecFlow, Slurm/PBS). Data sources are NOAA-centric: CO-OPS, NHC, STOFS, ERDDAP, GOES, USGS. Atmospheric fields enter as observations and forcing — winds, pressure, hurricane reconnaissance — not as general atmospheric modeling.
+
+Everything runs on open-weight LLMs via Ollama, entirely inside your network: no external LLM APIs, no cloud dependencies. That makes CORAL deployable where operational forecasting actually happens — air-gapped HPC systems, agency networks, and research clusters.
+
 ## What It Does
 
-- **Ocean data & analysis** — Real-time water levels, hurricane tracks, storm surge forecasts, satellite data via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp), plus Python code execution for plotting and analysis
-- **Code & documentation** — RAG search over SCHISM/ADCIRC source code, NOAA tech memos, namelists, and NOS workflow configs
-- **HPC workflows** — Slurm and PBS job diagnostics, ecFlow suite monitoring, UFS-Coastal experiment management, disk quotas, FairShare, threshold alerting
-- **Persistent & portable** — Memory across sessions, CLI with slash commands, web UI, deployed on NOAA Ursa and TACC Vista
+- **Coastal data & analysis** — Real-time water levels, tides, storm surge forecasts, hurricane tracks, wave conditions, and satellite data via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp), plus Python code execution for plotting and analysis
+- **Model code & documentation** — RAG search over SCHISM/ADCIRC/UFS-Coastal source code, NOAA tech memos, namelists, and NOS workflow configs
+- **Forecast operations** — Slurm and PBS job diagnostics, ecFlow suite monitoring, UFS-Coastal experiment management, disk quotas, FairShare, threshold alerting
+- **Persistent & portable** — Memory across sessions, CLI with slash commands, web UI; deployed on NOAA Ursa and TACC Vista
 
-All self-hosted on Ollama with open-weight LLMs. No external APIs, no cloud dependencies.
+## Architecture
+
+CORAL routes each query to one of three specialized sections — **Data**, **Code**, and **Workflow** — each of which sees only its own tools, enforced by a policy manifest. This domain-motivated decomposition is what keeps open-weight models reliable across 150+ tools: overloaded coastal terms like `stofs`, `schism`, and `adcirc` appear in data, code, and workflow contexts, so queries are routed by intent, with an LLM classifier as fallback for ambiguous cases. Cross-domain questions chain sections in dependency order (diagnose the run, then explain the code; fetch the data, then plot it). A single-agent mode (`--mode single`) remains available.
 
 ## Quick Start
 
@@ -57,11 +65,11 @@ You: @gemma4 What is the current water level at The Battery?
 
 ## MCP Servers
 
-CORAL connects to **22 MCP servers** providing 150+ tools across three categories:
+CORAL connects to **23 MCP servers** providing 150+ tools, allowlisted per section by the policy manifest:
 
-- **Ocean data** (12 servers) — CO-OPS, NHC, STOFS, ERDDAP, OFS, GOES, USGS, NDBC, WW3, ADCIRC, SCHISM, Hurricane Recon via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp)
-- **HPC & workflow** (6 servers) — Slurm, PBS (WCOSS2), ecFlow, UFS experiment runner, HPC system admin, NOS workflow configs
-- **Local tools** (4 servers) — NetCDF queries, RAG documentation search, Python execution (sandboxed), threshold alerting
+- **Data (14 servers)** — CO-OPS, NHC, STOFS, Hurricane Recon, ERDDAP, OFS, ADCIRC, GOES, SCHISM, USGS, Winds, WW3, VDatum via [ocean-mcp](https://github.com/mansurjisan/ocean-mcp), plus local NetCDF queries
+- **Code (2 servers)** — RAG documentation search, sandboxed Python execution
+- **Workflow (7 servers)** — Slurm, PBS (WCOSS2), ecFlow, UFS experiment runner, HPC system info, NOS workflow configs, threshold alerting
 
 ## CLI Features
 
@@ -101,7 +109,7 @@ CORAL connects to **22 MCP servers** providing 150+ tools across three categorie
 
 ## Related
 
-- [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) — MCP servers for NOAA ocean data (18 servers)
+- [ocean-mcp](https://github.com/mansurjisan/ocean-mcp) — MCP servers for NOAA ocean data (19 servers)
 - [nos-workflow](https://github.com/mansurjisan/nos-workflow) — NOS Unified Operational Forecast System workflow
 - [Ollama](https://ollama.com) — Local LLM inference
 - [Model Context Protocol](https://modelcontextprotocol.io) — Tool integration standard
@@ -116,7 +124,7 @@ If you use CORAL in your research or operations, please cite:
   title = {CORAL: Coastal Ocean Research AI Layer},
   year = {2025},
   url = {https://github.com/mansurjisan/coral},
-  note = {A self-hosted AI agent connecting local LLMs to NOAA ocean data via MCP}
+  note = {A domain-specific AI agent for coastal ocean and wave forecasting, self-hosted on open-weight LLMs}
 }
 ```
 
