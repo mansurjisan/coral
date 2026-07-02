@@ -14,7 +14,7 @@
 
 ## Domain & Scope
 
-CORAL is built for **coastal hazards and forecasting**: water levels and tides, storm surge, hurricanes, waves, and river discharge — together with the models that predict them (SCHISM, ADCIRC, WW3, UFS-Coastal) and the operational workflows that run them (ecFlow, Slurm/PBS). Data sources are NOAA-centric: CO-OPS, NHC, STOFS, ERDDAP, GOES, USGS. Atmospheric fields enter as observations and forcing — winds, pressure, hurricane reconnaissance — not as general atmospheric modeling.
+CORAL is built for coastal hazards and forecasting: water levels and tides, storm surge, hurricanes, waves, and river discharge — together with the models that predict them (SCHISM, ADCIRC, WW3, UFS-Coastal) and the operational workflows that run them (ecFlow, Slurm/PBS). Data sources are NOAA-centric: CO-OPS, NHC, STOFS, ERDDAP, GOES, USGS. Atmospheric fields enter as observations and forcing — winds, pressure, hurricane reconnaissance — not as general atmospheric modeling.
 
 Everything runs on open-weight LLMs via Ollama, entirely inside your network: no external LLM APIs, no cloud dependencies. That makes CORAL deployable where operational forecasting actually happens — air-gapped HPC systems, agency networks, and research clusters.
 
